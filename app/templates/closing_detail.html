@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Closing run #{{ run.id }}{% endblock %}
+{% block content %}
+<h2>Closing run #{{ run.id }} — {{ run.period_label }}
+    <span class="badge {% if run.status == 'completed' %}badge-completed{% else %}badge-in_progress{% endif %}">{{ run.status }}</span>
+</h2>
+<p><a href="/closing">← back to closing runs</a></p>
+
+<div class="card">
+    <p><strong>Threshold:</strong> ₱{{ "%.2f"|format(run.threshold|float) }} &nbsp;|&nbsp;
+       <strong>Financial statements:</strong> {{ run.financial_statement_filename or "legacy single-ledger run" }} &nbsp;|&nbsp;
+       <strong>Subsidiary ledger:</strong> {{ run.subsidiary_ledger_filename or run.source_filename }} &nbsp;|&nbsp;
+       <strong>Created:</strong> {{ run.created_at }}
+       {% if run.completed_at %} &nbsp;|&nbsp; <strong>Completed:</strong> {{ run.completed_at }}{% endif %}
+    </p>
+    <p><strong>{{ flagged_count }}</strong> material account movement(s) flagged out of {{ rows|length }} total rows.</p>
+    {% if run.financial_statement_filename %}
+    <p>
+        <a class="button" href="/closing/{{ run.id }}/export-fs">Download financial statement with remarks in last column</a>
+        <span class="muted">This writes the generated closing remarks back into the uploaded FS workbook's existing Remarks column, or adds a Remarks column at the far right if none exists.</span>
+    </p>
+    {% endif %}
+    {% if run.status == 'in_progress' %}
+    <form method="post" action="/closing/{{ run.id }}/finalize" style="display:inline-block;">
+        <button type="submit">Mark closing as completed</button>
+    </form>
+    {% endif %}
+    <form method="get" action="/closing/{{ run.id }}" style="display:inline-block; margin-left:8px;">
+        <input type="hidden" name="show_all" value="{{ '0' if show_all else '1' }}">
+        <button type="submit" class="secondary">{{ "Hide non-material rows" if show_all else "Show all accounts" }}</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3>{{ "All accounts" if show_all else "Material changes only" }}
+        <span class="muted" style="font-weight:normal; font-size:13px;">({{ visible_rows|length }} rows shown)</span>
+    </h3>
+    <table>
+        <thead>
+            <tr>
+                <th>FS</th>
+                <th>Account</th>
+                <th class="num">Opening per SL</th>
+                <th class="num">Closing per SL</th>
+                <th class="num">Inc./Dec.</th>
+                <th>Flag</th>
+                <th>AI-agent remarks / reasoning</th>
+                <th>Subsidiary ledger basis</th>
+                <th>Reviewer notes</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for r in visible_rows %}
+            <tr {% if r.flagged %}style="background:#f0fdf4;"{% endif %}>
+                <td><span class="badge badge-draft">{{ r.sheet or "SL" }}</span>{% if r.fs_row_number %}<div class="muted">row {{ r.fs_row_number }}</div>{% endif %}</td>
+                <td><strong>{{ r.account_code }}</strong><br>{{ r.account_title }}</td>
+                <td class="num">{{ "%.2f"|format(r.opening_balance|float) }}</td>
+                <td class="num">{{ "%.2f"|format(r.closing_balance|float) }}</td>
+                <td class="num {% if r.net_change|float >= 0 %}cr{% else %}dr{% endif %}">{{ "%.2f"|format(r.net_change|float) }}</td>
+                <td>{% if r.flagged %}<span class="badge badge-unmatched">material</span>{% else %}<span class="muted">below</span>{% endif %}</td>
+                <td>
+                    {% if r.flagged %}
+                    <form method="post" action="/closing/{{ run.id }}/explain/{{ r.account_code }}" style="margin:0; display:block;">
+                        <textarea name="explanation" rows="4" style="width:300px;">{{ r.explanation or "" }}</textarea>
+                        <button type="submit" style="font-size:11px; padding:3px 8px; margin-top:2px;">Save remarks</button>
+                    </form>
+                    {% else %}<span class="muted">{{ r.explanation or "" }}</span>{% endif %}
+                </td>
+                <td>
+                    {% if r.flagged %}
+                    <form method="post" action="/closing/{{ run.id }}/basis/{{ r.account_code }}" style="margin:0; display:block;">
+                        <textarea name="basis" rows="4" style="width:300px;" placeholder="Subsidiary ledger basis">{{ r.basis or "" }}</textarea>
+                        <button type="submit" style="font-size:11px; padding:3px 8px; margin-top:2px;">Save basis</button>
+                    </form>
+                    {% else %}<span class="muted">{{ r.basis or "" }}</span>{% endif %}
+                </td>
+                <td>
+                    {% if r.flagged %}
+                    <form method="post" action="/closing/{{ run.id }}/reviewer/{{ r.account_code }}" style="margin:0; display:block;">
+                        <textarea name="notes" rows="3" style="width:220px;" placeholder="reviewer notes">{{ r.reviewer_notes or "" }}</textarea>
+                        <button type="submit" style="font-size:11px; padding:3px 8px; margin-top:2px;">Save notes</button>
+                    </form>
+                    {% if r.reviewed_at %}<div class="muted" style="font-size:11px; margin-top:2px;">reviewed {{ r.reviewed_at }}</div>{% endif %}
+                    {% else %}<span class="muted">{{ r.reviewer_notes or "" }}</span>{% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

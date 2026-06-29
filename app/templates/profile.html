@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}BookPoint - My Profile{% endblock %}
+{% block page_heading %}My profile{% endblock %}
+{% block content %}
+<div class="card narrow-card">
+  <div class="section-head">
+    <div>
+      <h3>Profile settings</h3>
+      <p class="muted">Update your display name and email address. Your email is used to send payment notifications when your requests are marked as paid.</p>
+    </div>
+  </div>
+
+  {% if message %}
+  <div class="success" style="padding:10px 14px;border-radius:8px;background:#f0fdf4;color:#15803d;border:1px solid #86efac;margin-bottom:16px;font-size:14px;">
+    ✓ {{ message }}
+  </div>
+  {% endif %}
+  {% if error %}
+  <div class="error">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" action="/profile" class="form-grid">
+    <label>
+      Display name
+      <input type="text" name="full_name" value="{{ full_name }}" placeholder="e.g. Juan dela Cruz" autocomplete="name">
+      <span class="field-hint">Shown throughout the app and on requests.</span>
+    </label>
+    <label>
+      Email address
+      <input type="email" name="email" value="{{ email }}" placeholder="e.g. juan@company.com" autocomplete="email">
+      <span class="field-hint">Payment receipts and status notifications will be sent here. Leave blank to opt out.</span>
+    </label>
+    {% if not email %}
+    <div style="padding:10px 14px;border-radius:8px;background:#fffbeb;color:#92400e;border:1px solid #fcd34d;font-size:13px;display:flex;align-items:flex-start;gap:8px;">
+      <span style="font-size:16px;line-height:1.4;">⚠</span>
+      <span>You have no email set. You will <strong>not</strong> receive notifications when your payment requests are processed. Add your email above to stay informed.</span>
+    </div>
+    {% endif %}
+    <div class="form-actions">
+      <button class="button primary" type="submit">Save changes</button>
+      <a class="button" href="/change-password">Change password</a>
+    </div>
+  </form>
+</div>
+
+<!-- Two-factor authentication card -->
+<div class="card narrow-card" style="margin-top:18px;">
+  <div class="section-head">
+    <div>
+      <h3>Two-Factor Authentication (2FA)</h3>
+      <p class="muted">Add an extra layer of security using a time-based one-time password (TOTP) from an authenticator app such as Google Authenticator or Authy.</p>
+    </div>
+  </div>
+
+  {% if totp_enabled %}
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+    <span style="background:#dcfce7;color:#166534;padding:4px 10px;border-radius:20px;font-size:13px;font-weight:600;">✓ 2FA is enabled</span>
+  </div>
+  <form method="post" action="/profile/disable-2fa"
+        onsubmit="return confirm('Disabling 2FA will make your account less secure. Continue?')">
+    <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+    <label style="display:block;margin-bottom:8px;font-weight:600;">Confirm your password to disable 2FA</label>
+    <input type="password" name="password" required placeholder="Current password"
+           style="padding:8px 12px;border:1.5px solid #d1d5db;border-radius:6px;font-size:14px;margin-bottom:10px;width:100%;box-sizing:border-box;">
+    <button type="submit"
+            style="padding:9px 18px;background:#dc2626;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;">
+      Disable 2FA
+    </button>
+  </form>
+  {% else %}
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+    <span style="background:#fef3c7;color:#92400e;padding:4px 10px;border-radius:20px;font-size:13px;font-weight:600;">2FA is not enabled</span>
+  </div>
+  <a href="/profile/setup-2fa"
+     style="display:inline-block;padding:9px 18px;background:#2563eb;color:#fff;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600;">
+    Set up 2FA
+  </a>
+  {% endif %}
+</div>
+{% endblock %}

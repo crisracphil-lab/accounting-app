@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Bank Upload & Payment Register{% endblock %}
+{% block page_heading %}Bank Upload & Payment Register{% endblock %}
+{% block content %}
+<h2>Bank Upload & Payment Register</h2>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+{% if result %}
+<div class="success">
+    <strong>Upload complete: {{ result.filename }}</strong>
+    <ul style="margin: 8px 0 0 16px;">
+        <li>Transactions parsed: {{ result.transactions_total }}</li>
+        <li>Inserted: {{ result.transactions_inserted }} (skipped duplicates: {{ result.transactions_skipped_duplicate }}, skipped zero-amount: {{ result.transactions_skipped_zero_amount }})</li>
+        <li>Suppliers matched: {{ result.suppliers_matched }}</li>
+        <li>Draft journal entries created: {{ result.journal_entries_drafted }}</li>
+        <li>In suspense: <strong>{{ result.suspense_count }}</strong></li>
+    </ul>
+    <p><a href="/transactions">Review transactions →</a></p>
+</div>
+{% endif %}
+<div class="card">
+    <p>Upload bank statements, payment registers, or raw exports from different formats. Supported files: <strong>.xlsx, .xlsm, .xls, .csv</strong>.</p>
+    <form method="post" action="/upload" enctype="multipart/form-data">
+        {% if is_admin %}
+        <label>Company
+            <select name="company_id">
+                {% for c in companies %}
+                <option value="{{ c.id }}" {% if c.id == user_company_id %}selected{% endif %}>{{ c.name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        {% else %}
+        <div style="margin-bottom:10px">
+            <span class="muted small" style="font-weight:600;text-transform:uppercase;letter-spacing:.06em">Company</span>
+            <div style="font-weight:600;margin-top:3px">{{ user_company_name }}</div>
+        </div>
+        <input type="hidden" name="company_id" value="{{ user_company_id }}">
+        {% endif %}
+        <input type="file" name="file" accept=".xlsx,.xlsm,.xls,.csv" required>
+        <button type="submit">Upload and ingest</button>
+    </form>
+</div>
+<div class="card">
+    <h3 style="margin-top:0;">Learn future journal entries from ledger file</h3>
+    <p>Upload historical journal entries/subsidiary ledger files, for example January-December 2025 or January-April 2026. The file is kept as the company-specific basis for future receipt and bank-statement journal suggestions. Account codes/titles will follow the uploaded historical file.</p>
+    <form method="post" action="/upload/learn-journal" enctype="multipart/form-data">
+        {% if is_admin %}
+        <label>Company
+            <select name="company_id">
+                {% for c in companies %}
+                <option value="{{ c.id }}" {% if c.id == user_company_id %}selected{% endif %}>{{ c.name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        {% else %}
+        <div style="margin-bottom:10px">
+            <span class="muted small" style="font-weight:600;text-transform:uppercase;letter-spacing:.06em">Company</span>
+            <div style="font-weight:600;margin-top:3px">{{ user_company_name }}</div>
+        </div>
+        <input type="hidden" name="company_id" value="{{ user_company_id }}">
+        {% endif %}
+        <input type="file" name="ledger_file" accept=".xlsx,.xlsm,.xls,.csv" required>
+        <button type="submit">Learn journal entries</button>
+    </form>
+</div>
+{% endblock %}

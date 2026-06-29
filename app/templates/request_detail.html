@@ -1,0 +1,707 @@
+{% extends "base.html" %}
+{% block title %}BookPoint - Request #{{ r.id }}{% endblock %}
+{% block page_heading %}Request #{{ r.id }}{% endblock %}
+
+{% block content %}
+<a href="/requests" style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);text-decoration:none;margin-bottom:16px">← Back to requests</a>
+
+{% if message %}
+<div class="alert {% if 'error' in message|lower or 'fail' in message|lower or 'denied' in message|lower %}danger{% else %}success{% endif %}" style="margin-bottom:16px">{{ message }}</div>
+{% endif %}
+
+{% if similar_requests %}
+<div class="alert" style="margin-bottom:16px;background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:8px;padding:14px 18px">
+  <strong>⚠ Possible duplicate request</strong> — {{ similar_requests|length }} other active request{% if similar_requests|length != 1 %}s{% endif %} found with the same payee and amount within 30 days:
+  <ul style="margin:8px 0 0 18px;padding:0">
+    {% for s in similar_requests %}
+    <li style="margin-bottom:4px">
+      <a href="/requests/{{ s.id }}" style="color:#991b1b;font-weight:700">#{{ s.id }}</a>
+      — <span class="badge badge-{{ s.status }}" style="font-size:11px">{{ s.status.replace('_',' ') }}</span>
+      submitted {{ (s.created_at or '')[:10] }}
+      {% if s.description %}<span class="muted"> · {{ s.description[:80] }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  <div style="margin-top:10px;font-size:13px">Please review these requests before approving to avoid double payment. <a href="/ops-reconciliation" style="color:#991b1b;text-decoration:underline">View full reconciliation →</a></div>
+</div>
+{% endif %}
+
+{# ── Request summary card ─────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:18px">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow muted small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:700;font-size:11px;margin-bottom:4px">
+        {{ r.company_name or '—' }} · {{ r.department_name or '—' }}
+      </div>
+      <h3 style="margin:0 0 4px">{{ r.payee_name }}</h3>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span class="badge badge-{{ r.status }}">{{ r.status.replace('_',' ') }}</span>
+        <span class="badge">{{ r.request_type.replace('_',' ')|title }}</span>
+        {% if needs_operations_approval %}
+          <span class="badge warning" title="General Manager approval required above PHP 50,000">⚠️ GM approval required</span>
+        {% endif %}
+        {% if r.operations_approved_by_name %}
+          <span class="badge teal" title="Approved by {{ r.operations_approved_by_name }}">✅ GM approved by {{ r.operations_approved_by_name }}</span>
+        {% endif %}
+      </div>
+    </div>
+    <div style="text-align:right">
+      <div class="muted small">Submitted</div>
+      <div style="font-size:13px">{{ (r.created_at or '')[:10] }}</div>
+      {% if r.updated_at %}
+      <div class="muted small" style="margin-top:4px">Last updated</div>
+      <div style="font-size:13px">{{ (r.updated_at or '')[:16] }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px 24px;margin-top:20px;padding-top:20px;border-top:1px solid var(--border)">
+    <div>
+      <div class="muted small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:700;font-size:11px">Requester</div>
+      <div style="margin-top:4px;font-weight:600">{{ r.full_name or r.username }}</div>
+      {% if requester_email %}
+      <div style="margin-top:2px;font-size:12px;color:var(--muted)">📧 {{ requester_email }}</div>
+      {% else %}
+      <div style="margin-top:2px;font-size:12px;color:#b45309">⚠ No email — notification will not be sent</div>
+      {% endif %}
+    </div>
+    <div>
+      <div class="muted small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:700;font-size:11px">Department</div>
+      <div style="margin-top:4px">{{ r.department_name or '—' }}</div>
+    </div>
+    <div>
+      <div class="muted small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:700;font-size:11px">Company</div>
+      <div style="margin-top:4px">{{ r.company_name or '—' }}</div>
+    </div>
+    <div>
+      <div class="muted small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:700;font-size:11px">Total amount</div>
+      <div style="margin-top:4px;font-size:22px;font-weight:800;color:var(--accent)">{{ r.amount|money }}</div>
+    </div>
+    {% if r.due_date %}
+    <div>
+      <div class="muted small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:700;font-size:11px">Due date</div>
+      <div style="margin-top:4px">{{ r.due_date|english_date }}</div>
+    </div>
+    {% endif %}
+    {% if r.paid_at %}
+    <div>
+      <div class="muted small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:700;font-size:11px">Paid at</div>
+      <div style="margin-top:4px;font-weight:600;color:#059669">{{ (r.paid_at or '')[:10] }}</div>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if r.description %}
+  <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border)">
+    <div class="muted small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:700;font-size:11px;margin-bottom:6px">Description / purpose</div>
+    <p style="margin:0;white-space:pre-wrap">{{ r.description }}</p>
+  </div>
+  {% endif %}
+
+  {# Line items #}
+  {% if line_items %}
+  <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--border)">
+    <div class="muted small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:700;font-size:11px;margin-bottom:10px">Expense breakdown</div>
+    <div class="table-wrap">
+      <table style="font-size:14px">
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th>Account</th>
+            <th class="num">Amount (PHP)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for li in line_items %}
+          <tr>
+            <td>{{ li.description or '—' }}</td>
+            <td>
+              {% if li.account_code %}
+                <span class="badge" style="margin-right:4px">{{ li.account_code }}</span>
+                <span class="muted small">{{ li.account_title }}</span>
+              {% else %}
+                <span class="muted small">Unclassified</span>
+              {% endif %}
+            </td>
+            <td class="num">{{ li.amount|money }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="font-weight:700;border-top:2px solid var(--border)">
+            <td colspan="2" style="text-align:right;padding-right:12px">Total</td>
+            <td class="num">{{ r.amount|money }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# Invoice link #}
+  {% if invoice %}
+  <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+    <div class="muted small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:700;font-size:11px;margin-bottom:6px">Linked invoice</div>
+    <a href="/invoices/{{ invoice.id }}">Invoice #{{ invoice.id }} — {{ invoice.vendor_name or 'N/A' }}</a>
+    <span class="muted small" style="margin-left:8px">{{ invoice.invoice_date or '' }}{% if invoice.amount %} · {{ invoice.amount|money }}{% endif %}</span>
+  </div>
+  {% endif %}
+
+  {# Notes from Accounting #}
+  {% if r.accounting_notes %}
+  <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+    <div style="background:#eff6ff;border-left:4px solid #3b82f6;border-radius:0 8px 8px 0;padding:14px 18px">
+      <div class="muted small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:700;font-size:11px;color:#1d4ed8;margin-bottom:6px">📋 Notes from Accounting</div>
+      <p style="margin:0;white-space:pre-wrap">{{ r.accounting_notes }}</p>
+    </div>
+  </div>
+  {% endif %}
+
+  {# Notes from Operations #}
+  {% if operations_notes %}
+  <div style="margin-top:14px{% if not r.accounting_notes %};padding-top:14px;border-top:1px solid var(--border){% endif %}">
+    <div style="background:#fffbeb;border-left:4px solid #f59e0b;border-radius:0 8px 8px 0;padding:14px 18px">
+      <div class="muted small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:700;font-size:11px;color:#92400e;margin-bottom:6px">🏢 Notes from General Manager</div>
+      <p style="margin:0;white-space:pre-wrap">{{ operations_notes }}</p>
+      {% if r.operations_approved_by_name %}
+      <p class="muted small" style="margin:8px 0 0">— {{ r.operations_approved_by_name }}{% if r.operations_approved_at %}, {{ (r.operations_approved_at or '')[:10] }}{% endif %}</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# Journal basis document #}
+  {% if journal_basis_filename %}
+  <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+    <div style="background:#f0fdf4;border-left:4px solid #16a34a;border-radius:0 8px 8px 0;padding:14px 18px;display:flex;align-items:center;gap:14px">
+      <span style="font-size:24px;line-height:1">📒</span>
+      <div style="flex:1">
+        <div class="muted small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:700;font-size:11px;color:#15803d;margin-bottom:4px">Journal Basis</div>
+        <a href="/requests/{{ r.id }}/journal-basis" style="font-weight:600;color:#15803d">{{ journal_basis_filename }}</a>
+        <span class="muted small" style="margin-left:8px">uploaded by Accounting</span>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Accounting action panel ──────────────────────────────────────────────── #}
+{% if is_accounting %}
+<div class="card" style="margin-bottom:18px">
+  <div class="section-head">
+    <div>
+      <h3>Accounting actions</h3>
+      <p class="muted">Update the status, add notes, and optionally attach a payment receipt when marking as paid.</p>
+      {% if not requester_email %}
+      <p class="muted" style="margin-top:6px;color:#b45309;font-size:12px;">⚠ Requester has no email set — payment notification will not be sent.</p>
+      {% endif %}
+    </div>
+  </div>
+  <form method="post" action="/requests/{{ r.id }}/status" enctype="multipart/form-data" data-disable-on-submit="1" class="form-grid">
+    <label>Status
+      <select name="status" id="acct-status-select" onchange="toggleReceiptUpload()">
+        {% for st in statuses %}
+        <option value="{{ st }}" {% if r.status == st %}selected{% endif %}>{{ st.replace('_',' ')|title }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="wide">Notes to requester (optional)
+      <textarea name="accounting_notes" rows="3" placeholder="Add a note visible to the requester…">{{ r.accounting_notes or '' }}</textarea>
+    </label>
+    <div id="receipt-upload-field" class="wide" style="display:none">
+      <label>Attach payment receipt (optional)
+        <input type="file" name="receipt_file" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.xlsx,.xls,.csv">
+        <span class="muted small">PDF, image, or spreadsheet up to 10 MB. The requester will be notified by email that a receipt is available.</span>
+      </label>
+      {% if not requester_email %}
+      <div id="no-email-warning" style="margin-top:8px;padding:10px 14px;border-radius:8px;background:#fffbeb;color:#92400e;border:1px solid #fcd34d;font-size:13px;display:flex;align-items:flex-start;gap:8px;">
+        <span style="font-size:16px;line-height:1.4;">⚠</span>
+        <span>The requester <strong>{{ r.full_name or r.username }}</strong> did not provide an email when submitting this request. No payment notification will be sent. Ask them to resubmit or note their email below.</span>
+      </div>
+      {% endif %}
+    </div>
+    <div class="form-actions">
+      <button class="button primary" type="submit">Update status</button>
+    </div>
+  </form>
+
+  {# ── Journal basis ── #}
+  <div style="margin-top:20px;padding-top:18px;border-top:1px solid var(--border)">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <div>
+        <strong style="font-size:14px">📒 Journal Basis</strong>
+        <p class="muted small" style="margin:3px 0 0">The JV / journal entry document that serves as the accounting basis for this request.</p>
+      </div>
+      {% if journal_basis_filename %}
+      <a href="/requests/{{ r.id }}/journal-basis" class="button secondary" style="white-space:nowrap;font-size:13px">⬇ {{ journal_basis_filename }}</a>
+      {% endif %}
+    </div>
+
+    {# Option A: use one of the requester's attachments directly #}
+    {% if attachments %}
+    <div style="margin-bottom:12px">
+      <div class="muted small" style="font-weight:600;margin-bottom:6px">Use a file already attached by the requester:</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        {% for att in attachments %}
+        <form method="post" action="/requests/{{ r.id }}/use-attachment-as-journal/{{ att.id }}" style="margin:0;display:flex;align-items:center;gap:8px">
+          <span style="font-size:18px">
+            {% if att.content_type and 'pdf' in att.content_type %}📄
+            {% elif att.content_type and 'image' in att.content_type %}🖼️
+            {% elif att.content_type and ('sheet' in att.content_type or 'excel' in att.content_type or 'spreadsheet' in att.content_type) %}📊
+            {% else %}📎{% endif %}
+          </span>
+          <span style="font-size:13px;flex:1">{{ att.original_filename or att.filename }}</span>
+          <button class="button secondary" type="submit" style="font-size:12px;padding:3px 10px;white-space:nowrap">
+            Use as journal basis
+          </button>
+        </form>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="muted small" style="margin-bottom:8px;font-weight:600">— or upload a new file —</div>
+    {% endif %}
+
+    {# Option B: upload a new journal file #}
+    <form method="post" action="/requests/{{ r.id }}/upload-journal" enctype="multipart/form-data" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <label style="flex:1;min-width:220px;margin:0">
+        <input type="file" name="journal_file" accept=".pdf,.xlsx,.xlsm,.xls,.csv,.doc,.docx,.png,.jpg,.jpeg" required style="width:100%">
+        <span class="muted small">PDF, Excel, Word, or image</span>
+      </label>
+      <button class="button primary" type="submit" style="white-space:nowrap">
+        {% if journal_basis_filename %}Replace journal{% else %}Upload journal{% endif %}
+      </button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{# ── General Manager action panel ─────────────────────────────────────── #}
+{% if is_operations_manager and needs_operations_approval %}
+<div class="card" style="margin-bottom:18px">
+  <div class="section-head">
+    <div>
+      <h3>General Manager approval</h3>
+      <p class="muted">This reimbursement is above PHP 50,000 and requires General Manager approval.</p>
+    </div>
+  </div>
+  <form method="post" action="/requests/{{ r.id }}/status" data-disable-on-submit="1" class="form-grid">
+    <label>Decision
+      <select name="status">
+        <option value="for_review" {% if r.status == 'for_review' %}selected{% endif %}>For Review</option>
+        <option value="approved" {% if r.status == 'approved' %}selected{% endif %}>Approved</option>
+        <option value="rejected" {% if r.status == 'rejected' %}selected{% endif %}>Rejected</option>
+      </select>
+    </label>
+    <label class="wide">Notes (visible to requester and accounting)
+      <textarea name="operations_notes" rows="3" placeholder="Add an approval note or reason for rejection…">{{ operations_notes or '' }}</textarea>
+    </label>
+    <input type="hidden" name="accounting_notes" value="{{ r.accounting_notes or '' }}">
+    <div class="form-actions">
+      <button class="button primary" type="submit">Submit decision</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+{# ── Account assignment (supplier payments — no line items) ───────────────── #}
+{% if is_accounting and not line_items %}
+<div class="card" style="margin-bottom:18px">
+  <div class="section-head">
+    <div>
+      <h3>GL Account Classification</h3>
+      <p class="muted">Assign the expense account for this payment.</p>
+    </div>
+    {% if r.account_id %}
+    <div style="text-align:right">
+      <span class="badge badge-approved" style="font-size:13px">
+        {% for type, accts in accounts.items() %}{% for a in accts %}{% if a.id == r.account_id %}{{ a.code }} · {{ a.name }}{% endif %}{% endfor %}{% endfor %}
+      </span>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if suggested_je_lines %}
+  <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:14px 16px;margin-bottom:14px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <span style="font-size:18px">🤖</span>
+      <strong style="font-size:13px">AI-suggested journal entry</strong>
+      <span class="muted small" style="margin-left:4px">— based on uploaded JOURNAL.xls patterns</span>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="background:#dcfce7;border-bottom:1px solid #86efac">
+          <th style="text-align:left;padding:5px 8px;font-weight:600">Account Code</th>
+          <th style="text-align:left;padding:5px 8px;font-weight:600">Account Title</th>
+          <th style="text-align:center;padding:5px 8px;font-weight:600">Dr / Cr</th>
+          <th style="text-align:right;padding:5px 8px;font-weight:600">Confidence</th>
+          {% if not r.account_id %}<th style="padding:5px 8px"></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for line in suggested_je_lines %}
+        <tr style="border-bottom:1px solid #d1fae5">
+          <td style="padding:5px 8px;font-family:monospace;color:var(--accent)">{{ line.account_code }}</td>
+          <td style="padding:5px 8px;font-weight:500">{{ line.account_title }}</td>
+          <td style="padding:5px 8px;text-align:center">
+            {% if line.normal_side == 'debit' %}
+              <span style="color:#1d4ed8;font-weight:700">Dr</span>
+            {% else %}
+              <span style="color:#7c3aed;font-weight:700">Cr</span>
+            {% endif %}
+          </td>
+          <td style="padding:5px 8px;text-align:right;color:var(--muted)">{{ "%.0f"|format(line.confidence * 100) }}%</td>
+          {% if not r.account_id %}
+          <td style="padding:5px 8px;text-align:right">
+            {% if line.account_id %}
+            <form method="post" action="/requests/{{ r.id }}/set-account" style="margin:0;display:inline">
+              <input type="hidden" name="account_id" value="{{ line.account_id }}">
+              <button class="button{% if loop.first %} primary{% else %} secondary{% endif %}" type="submit" style="font-size:11px;padding:3px 10px;white-space:nowrap">Apply</button>
+            </form>
+            {% endif %}
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif suggested_account and not r.account_id %}
+  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
+    <span style="font-size:20px">💡</span>
+    <div style="flex:1">
+      <div style="font-weight:600;font-size:13px">Suggested account based on learned patterns</div>
+      <div class="muted small">{{ suggested_account.code }} · {{ suggested_account.title }}</div>
+    </div>
+    {% if suggested_account.id %}
+    <form method="post" action="/requests/{{ r.id }}/set-account" style="margin:0">
+      <input type="hidden" name="account_id" value="{{ suggested_account.id }}">
+      <button class="button primary" type="submit" style="font-size:12px;padding:4px 12px">Apply suggestion</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <form method="post" action="/requests/{{ r.id }}/set-account" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <label style="flex:1;min-width:260px;margin:0">
+      <div class="muted small" style="font-weight:600;margin-bottom:4px">Account</div>
+      <select name="account_id" style="width:100%">
+        <option value="0">— Select account —</option>
+        {% for type, accts in accounts.items() %}
+        <optgroup label="{{ type|title }}">
+          {% for a in accts %}
+          <option value="{{ a.id }}" {% if a.id == r.account_id %}selected{% endif %}>{{ a.code }} · {{ a.name }}</option>
+          {% endfor %}
+        </optgroup>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="button primary" type="submit" style="white-space:nowrap">Save account</button>
+  </form>
+
+  <div style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--border)">
+    <button type="button" class="button secondary" onclick="toggleSplit()" style="font-size:12px;padding:4px 12px">➗ Split across multiple accounts</button>
+    <p class="muted small" style="margin-top:6px">Use this when one request actually covers several expense categories — e.g. a {{ r.amount|money }} request that is really Transportation + Representation + Employee Benefits.</p>
+
+    <div id="split-panel" style="display:none;margin-top:12px">
+      <form method="post" action="/requests/{{ r.id }}/set-accounts" id="split-form" data-disable-on-submit="1">
+        <table style="width:100%;font-size:14px;border-collapse:collapse" id="split-table">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:4px 6px">Account</th>
+              <th style="text-align:right;padding:4px 6px;width:160px">Amount</th>
+              <th style="width:40px"></th>
+            </tr>
+          </thead>
+          <tbody id="split-rows">
+            <tr>
+              <td style="padding:4px 6px">
+                <select name="split_account_id" style="width:100%;font-size:13px">
+                  <option value="0">— Select account —</option>
+                  {% for type, accts in accounts.items() %}
+                  <optgroup label="{{ type|title }}">
+                    {% for a in accts %}
+                    <option value="{{ a.id }}">{{ a.code }} · {{ a.name }}</option>
+                    {% endfor %}
+                  </optgroup>
+                  {% endfor %}
+                </select>
+              </td>
+              <td style="padding:4px 6px">
+                <input type="number" name="split_amount" step="0.01" min="0" placeholder="0.00" style="width:100%;text-align:right" oninput="updateSplitTotal()">
+              </td>
+              <td style="padding:4px 6px;text-align:center">
+                <button type="button" class="button" onclick="removeSplitRow(this)" style="font-size:12px;padding:2px 8px;color:#ef4444">✕</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;flex-wrap:wrap;gap:10px">
+          <button type="button" class="button secondary" onclick="addSplitRow()" style="font-size:12px;padding:4px 12px">+ Add account</button>
+          <div class="muted small">
+            Split total: <strong id="split-total-display">0.00</strong> / Request total: <strong>{{ r.amount|money }}</strong>
+          </div>
+        </div>
+        <div class="form-actions" style="margin-top:12px">
+          <button class="button primary" type="submit">Save split across accounts</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Classify expense accounts panel ─────────────────────────────────────── #}
+{% if is_accounting and line_items %}
+<div class="card" style="margin-bottom:18px">
+  <div class="section-head">
+    <div>
+      <h3>Classify expense accounts</h3>
+      <p class="muted">Assign GL account codes to each line item for journal entry preparation.</p>
+    </div>
+  </div>
+  <form method="post" action="/requests/{{ r.id }}/classify-items" data-disable-on-submit="1">
+    <div class="table-wrap">
+      <table style="font-size:14px">
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th class="num">Amount</th>
+            <th>Account</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for li in line_items %}
+          <tr>
+            <td>{{ li.description or '—' }}<input type="hidden" name="li_id" value="{{ li.id }}"></td>
+            <td class="num">{{ li.amount|money }}</td>
+            <td>
+              <select name="li_account_id" style="font-size:13px;min-width:240px">
+                <option value="0">— Unclassified —</option>
+                {% for type, accts in accounts.items() %}
+                <optgroup label="{{ type|title }}">
+                  {% for a in accts %}
+                  <option value="{{ a.id }}" {% if li.account_id == a.id %}selected{% endif %}>{{ a.code }} · {{ a.name }}</option>
+                  {% endfor %}
+                </optgroup>
+                {% endfor %}
+              </select>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="form-actions" style="margin-top:14px">
+      <button class="button primary" type="submit">Save account classifications</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+{# ── Upload payment receipt (standalone) ──────────────────────────────────── #}
+{% if is_accounting and r.status in ['paid', 'approved', 'for_process'] %}
+<div class="card" style="margin-bottom:18px">
+  <div class="section-head">
+    <div>
+      <h3>🧾 Upload payment receipt</h3>
+      <p class="muted">Attach an additional receipt to this request. The requester will be notified by email.</p>
+    </div>
+  </div>
+  <form method="post" action="/requests/{{ r.id }}/upload-receipt" enctype="multipart/form-data" data-disable-on-submit="1" class="form-grid">
+    <label class="wide">Receipt file
+      <input type="file" name="receipt_file" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.xlsx,.xls,.csv" required>
+      <span class="muted small">PDF, image, or spreadsheet up to 10 MB.</span>
+    </label>
+    <div class="form-actions">
+      <button class="button primary" type="submit">Upload &amp; notify requester</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+{# ── Cancel request panel ─────────────────────────────────────────────────── #}
+{% if is_requester and r.status not in ['paid', 'cancelled'] %}
+<div class="card" style="margin-bottom:18px;border-left:4px solid #ef4444">
+  <div class="section-head">
+    <div>
+      <h3>Cancel this request</h3>
+      <p class="muted">This action cannot be undone. Accounting will be notified.</p>
+    </div>
+  </div>
+  <form method="post" action="/requests/{{ r.id }}/cancel" data-disable-on-submit="1" class="form-grid">
+    <label class="wide">Reason for cancellation
+      <input type="text" name="remarks" required placeholder="e.g. Duplicate submission, error in amount…">
+    </label>
+    <div class="form-actions">
+      <button class="button" type="submit" style="background:#ef4444;color:#fff;border-color:#ef4444" onclick="return confirm('Are you sure you want to cancel this request? This cannot be undone.')">Cancel this request</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+{# ── Payment receipts ─────────────────────────────────────────────────────── #}
+{% if receipts %}
+<div class="card" style="margin-bottom:18px">
+  <div class="section-head">
+    <div>
+      <h3>🧾 Payment receipts</h3>
+      <p class="muted">{{ receipts|length }} receipt{% if receipts|length != 1 %}s{% endif %} attached to this request.</p>
+    </div>
+  </div>
+  <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px">
+    {% for rec in receipts %}
+    {% set is_img = rec.content_type and 'image' in rec.content_type %}
+    {% set is_pdf = rec.content_type and 'pdf' in rec.content_type %}
+    <li style="border:1px solid var(--border);border-radius:8px;background:var(--bg-alt,#f8fafc);overflow:hidden">
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 14px">
+        <div style="font-size:24px">
+          {% if is_pdf %}📄{% elif is_img %}🖼️{% else %}📎{% endif %}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ rec.filename }}</div>
+          <div class="muted small">
+            Uploaded {{ (rec.uploaded_at or '')[:10] }}{% if rec.uploader_name %} by {{ rec.uploader_name }}{% endif %}{% if rec.file_size %} · {{ (rec.file_size / 1024)|round(1) }} KB{% endif %}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          {% if is_img or is_pdf %}
+          <button type="button" class="button secondary" onclick="togglePreview('rec-{{ rec.id }}')" style="font-size:12px;padding:4px 12px">👁 Preview</button>
+          {% endif %}
+          <a class="button" href="/requests/{{ r.id }}/receipts/{{ rec.id }}">Download</a>
+        </div>
+      </div>
+      {% if is_img %}
+      <div id="rec-{{ rec.id }}" style="display:none;padding:0 14px 14px">
+        <img src="/requests/{{ r.id }}/receipts/{{ rec.id }}/preview" alt="{{ rec.filename }}"
+             style="max-width:100%;max-height:85vh;border-radius:6px;display:block;border:1px solid var(--border)">
+      </div>
+      {% elif is_pdf %}
+      <div id="rec-{{ rec.id }}" style="display:none;padding:0 14px 14px">
+        <iframe src="/requests/{{ r.id }}/receipts/{{ rec.id }}/preview"
+                style="width:100%;height:85vh;min-height:700px;border:1px solid var(--border);border-radius:6px"
+                title="{{ rec.filename }}"></iframe>
+      </div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{# ── Attachments ──────────────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:18px">
+  <div class="section-head">
+    <div>
+      <h3>📎 Attachments</h3>
+      <p class="muted">
+        {% if attachments %}{{ attachments|length }} file{% if attachments|length != 1 %}s{% endif %} attached.{% else %}No files attached to this request.{% endif %}
+      </p>
+    </div>
+  </div>
+  {% if attachments %}
+  <ul style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px">
+    {% for att in attachments %}
+    {% set is_img = att.content_type and 'image' in att.content_type %}
+    {% set is_pdf = att.content_type and 'pdf' in att.content_type %}
+    <li style="border:1px solid var(--border);border-radius:8px;background:var(--bg-alt,#f8fafc);overflow:hidden">
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 14px">
+        <div style="font-size:24px">
+          {% if is_pdf %}📄{% elif is_img %}🖼️{% elif att.content_type and ('sheet' in att.content_type or 'excel' in att.content_type or 'spreadsheet' in att.content_type) %}📊{% else %}📎{% endif %}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ att.original_filename or att.filename }}</div>
+          {% if att.file_size %}<div class="muted small">{{ (att.file_size / 1024)|round(1) }} KB</div>{% endif %}
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          {% if is_img or is_pdf %}
+          <button type="button" class="button secondary" onclick="togglePreview('att-{{ att.id }}')" style="font-size:12px;padding:4px 12px">👁 Preview</button>
+          {% endif %}
+          <a class="button" href="/requests/{{ r.id }}/attachments/{{ att.id }}">Download</a>
+        </div>
+      </div>
+      {% if is_img %}
+      <div id="att-{{ att.id }}" style="display:none;padding:0 14px 14px">
+        <img src="/requests/{{ r.id }}/attachments/{{ att.id }}/preview" alt="{{ att.original_filename or att.filename }}"
+             style="max-width:100%;max-height:85vh;border-radius:6px;display:block;border:1px solid var(--border)">
+      </div>
+      {% elif is_pdf %}
+      <div id="att-{{ att.id }}" style="display:none;padding:0 14px 14px">
+        <iframe src="/requests/{{ r.id }}/attachments/{{ att.id }}/preview"
+                style="width:100%;height:85vh;min-height:700px;border:1px solid var(--border);border-radius:6px"
+                title="{{ att.original_filename or att.filename }}"></iframe>
+      </div>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>
+
+<script nonce="{{ request.state.csp_nonce }}">
+function togglePreview(id) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  var isHidden = el.style.display === 'none' || el.style.display === '';
+  el.style.display = isHidden ? 'block' : 'none';
+}
+
+{% if is_accounting and not line_items %}
+var splitRequestTotal = {{ r.amount or 0 }};
+
+function toggleSplit() {
+  var panel = document.getElementById('split-panel');
+  if (!panel) return;
+  var isHidden = panel.style.display === 'none' || panel.style.display === '';
+  panel.style.display = isHidden ? 'block' : 'none';
+  if (isHidden) updateSplitTotal();
+}
+
+function addSplitRow() {
+  var rows = document.getElementById('split-rows');
+  var first = rows.querySelector('tr');
+  var clone = first.cloneNode(true);
+  clone.querySelectorAll('select').forEach(function (s) { s.value = '0'; });
+  clone.querySelectorAll('input[type="number"]').forEach(function (i) { i.value = ''; });
+  rows.appendChild(clone);
+  updateSplitTotal();
+}
+
+function removeSplitRow(btn) {
+  var rows = document.getElementById('split-rows');
+  if (rows.querySelectorAll('tr').length <= 1) return;
+  btn.closest('tr').remove();
+  updateSplitTotal();
+}
+
+function updateSplitTotal() {
+  var inputs = document.querySelectorAll('#split-rows input[name="split_amount"]');
+  var total = 0;
+  inputs.forEach(function (i) { total += parseFloat(i.value) || 0; });
+  var display = document.getElementById('split-total-display');
+  if (!display) return;
+  display.textContent = total.toFixed(2);
+  display.style.color = (Math.abs(total - splitRequestTotal) < 0.01) ? '#16a34a' : '#ef4444';
+}
+{% endif %}
+
+function toggleReceiptUpload() {
+  var sel = document.getElementById('acct-status-select');
+  var field = document.getElementById('receipt-upload-field');
+  if (sel && field) {
+    field.style.display = sel.value === 'paid' ? '' : 'none';
+  }
+}
+document.addEventListener('DOMContentLoaded', function() {
+  toggleReceiptUpload();
+  document.querySelectorAll('form[data-disable-on-submit="1"]').forEach(function(form) {
+    form.addEventListener('submit', function() {
+      form.querySelectorAll('button[type="submit"]').forEach(function(btn) {
+        btn.disabled = true;
+        btn.textContent = 'Processing…';
+      });
+    });
+  });
+});
+</script>
+
+{% endblock %}

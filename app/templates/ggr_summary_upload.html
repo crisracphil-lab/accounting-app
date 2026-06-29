@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}GGR Weekly Summary{% endblock %}
+{% block page_heading %}GGR Weekly Summary{% endblock %}
+{% block content %}
+<h2>GGR Weekly Summary</h2>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<div class="card">
+    <h3 style="margin-top:0;">Upload monthly GGR report</h3>
+    <p>Upload your monthly report with the <strong>PER GGR</strong> sheet. BookPoint will automatically summarize each Week block and compute the grand total, so you do not need to manually total the weekly sections below the report.</p>
+    <form method="post" action="/ggr-summary" enctype="multipart/form-data">
+        <div style="display:grid; grid-template-columns:220px 1fr; gap:12px; align-items:center; margin-bottom:16px;">
+            <label>Monthly GGR file:</label>
+            <input type="file" name="ggr_file" accept=".xlsx,.xlsm,.xls" required>
+        </div>
+        <button type="submit" class="btn-primary">Generate weekly summary</button>
+    </form>
+    <p class="muted" style="margin-top:8px;font-size:0.85em;">Accepted formats: <strong>.xlsx</strong>, <strong>.xlsm</strong>, <strong>.xls</strong></p>
+</div>
+<div class="card">
+    <h3 style="margin-top:0;">What this summarizes</h3>
+    <p class="muted">For every outlet row under Week 1, Week 2, and the following week blocks, the page totals Gross Gaming Revenue, PAGCOR Share, Audit Fee, and Operator. It also shows total deductions and net after deductions for each week and for the whole month.</p>
+</div>
+{% endblock %}

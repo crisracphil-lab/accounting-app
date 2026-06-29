@@ -1,0 +1,46 @@
+name: Deploy BookPoint to Fly.io
+
+# Triggers every time you push to the main branch
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    concurrency: deploy-group    # prevent overlapping deploys
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Fly CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Verify persistent volume exists
+        run: |
+          echo "Checking that the 'bookpoint_data' volume exists on Fly.io..."
+          VOLUME_COUNT=$(flyctl volumes list --app bookpoint-rac --json \
+            | python3 -c "
+          import sys, json
+          vols = json.load(sys.stdin)
+          print(sum(1 for v in vols if v.get('name') == 'bookpoint_data' and v.get('state') != 'destroyed'))
+          ")
+          if [ "$VOLUME_COUNT" -eq 0 ]; then
+            echo "::error::Fly.io volume 'bookpoint_data' not found."
+            echo "::error::Create it before deploying:"
+            echo "::error::  flyctl volumes create bookpoint_data --size 3 --region sin --app bookpoint-rac"
+            echo "::error::WARNING: This volume contains ALL accounting data."
+            echo "::error::Never delete it without a verified backup."
+            exit 1
+          fi
+          echo "Volume 'bookpoint_data' found ($VOLUME_COUNT region replica(s)). Proceeding."
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Deploy to Fly.io
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

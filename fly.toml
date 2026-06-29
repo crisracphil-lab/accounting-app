@@ -1,0 +1,41 @@
+# fly.toml — BookPoint deployment config
+# App name must match what you created with: fly apps create <your-app-name>
+app = "bookpoint-rac"
+primary_region = "sin"   # Change to the region closest to your users
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # These point to the persistent volume mounted at /data
+  ACCOUNTING_DB         = "/data/accounting.db"
+  ACCOUNTING_UPLOAD_DIR = "/data/uploads"
+  COMMISSION_CARRY_DIR  = "/data/commission_carry"
+  # ACCOUNTING_SECRET_KEY is set as a Fly.io secret (fly secrets set ...) — NOT here
+
+[http_service]
+  internal_port        = 8000
+  force_https          = true
+  auto_stop_machines   = "off"    # Keep machine running — no cold starts
+  auto_start_machines  = true
+  min_machines_running = 1        # Always keep 1 machine warm
+
+  [http_service.concurrency]
+    type       = "connections"
+    hard_limit = 50
+    soft_limit = 30
+
+[[vm]]
+  size   = "shared-cpu-1x"
+  memory = "256mb"
+
+# Persistent volume — stores the SQLite DB and all uploaded files
+# Created once with: fly volumes create bookpoint_data --size 3 --region sin
+[[mounts]]
+  source      = "bookpoint_data"
+  destination = "/data"
+  initial_size = "3gb"
+
+[[statics]]
+  guest_path = "/app/app/static"
+  url_prefix = "/static"

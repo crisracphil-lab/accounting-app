@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Transactions{% endblock %}
+{% block content %}
+<h2>Bank transactions</h2>
+
+<form method="get" action="/transactions">
+    <input type="text" name="q" value="{{ q }}" placeholder="search description / remarks…">
+    <select name="status">
+        <option value="">All statuses</option>
+        <option value="unmatched"          {% if status=="unmatched" %}selected{% endif %}>Unmatched</option>
+        <option value="matched_supplier"   {% if status=="matched_supplier" %}selected{% endif %}>Supplier matched</option>
+        <option value="journal_generated"  {% if status=="journal_generated" %}selected{% endif %}>JE generated</option>
+        <option value="reviewed"           {% if status=="reviewed" %}selected{% endif %}>Reviewed</option>
+        <option value="approved"           {% if status=="approved" %}selected{% endif %}>Approved</option>
+    </select>
+    <select name="supplier_id">
+        <option value="0">All suppliers</option>
+        {% for s in suppliers %}
+            <option value="{{ s.id }}" {% if supplier_id == s.id %}selected{% endif %}>{{ s.name }}</option>
+        {% endfor %}
+    </select>
+    <button type="submit">Filter</button>
+    <a href="/transactions" class="muted">reset</a>
+</form>
+
+<div class="card">
+    <p class="muted">Showing {{ rows|length }} transactions.</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Tx ID</th>
+                <th>Description</th>
+                <th>Counterparty</th>
+                <th class="num">Debit</th>
+                <th class="num">Credit</th>
+                <th>Supplier</th>
+                <th>Classification</th>
+                <th>Status</th>
+                <th>JE</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}
+            <tr>
+                <td>{{ r.transaction_date }}</td>
+                <td><a href="/transactions/{{ r.id }}">{{ r.transaction_id }}</a></td>
+                <td>{{ r.description }}</td>
+                <td>{{ r.counterparty_name or "" }}</td>
+                <td class="num dr">{{ r.debit_amount|money }}</td>
+                <td class="num cr">{{ r.credit_amount|money }}</td>
+                <td>{{ r.supplier_name or "" }}</td>
+                <td>{{ r.classification or "" }}</td>
+                <td>
+                    {% if r.status == "unmatched" %}<span class="badge badge-unmatched">unmatched</span>
+                    {% elif r.status == "matched_supplier" %}<span class="badge badge-matched">matched</span>
+                    {% elif r.status == "journal_generated" %}<span class="badge badge-generated">JE</span>
+                    {% elif r.status == "approved" %}<span class="badge badge-approved">approved</span>
+                    {% else %}{{ r.status }}{% endif %}
+                </td>
+                <td>{% if r.je_id %}<a href="/journal-entries/{{ r.je_id }}">#{{ r.je_id }}</a>{% endif %}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

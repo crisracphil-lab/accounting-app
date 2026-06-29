@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Two-Factor Authentication{% endblock %}
+{% block content %}
+<div style="max-width:400px;margin:80px auto;padding:32px;background:#fff;border-radius:12px;box-shadow:0 2px 16px rgba(0,0,0,.1);">
+  <h2 style="margin-bottom:8px;">Two-Factor Authentication</h2>
+  <p style="color:#6b7280;margin-bottom:24px;">Enter the 6-digit code from your authenticator app, or one of your backup codes.</p>
+
+  {% if error %}
+  <div style="background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:6px;margin-bottom:16px;">{{ error }}</div>
+  {% endif %}
+
+  <form method="post" action="/login/verify-otp">
+    <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+
+    <label style="display:block;font-weight:600;margin-bottom:6px;" for="otp_code">Authentication Code</label>
+    <input
+      id="otp_code"
+      name="otp_code"
+      type="text"
+      inputmode="numeric"
+      autocomplete="one-time-code"
+      placeholder="000000"
+      maxlength="20"
+      autofocus
+      style="width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:6px;font-size:18px;letter-spacing:4px;text-align:center;box-sizing:border-box;"
+    >
+
+    <button type="submit"
+      style="margin-top:18px;width:100%;padding:11px;background:#2563eb;color:#fff;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+      Verify
+    </button>
+  </form>
+
+  <p style="text-align:center;margin-top:20px;font-size:13px;color:#9ca3af;">
+    <a href="/login" style="color:#6b7280;">← Back to login</a>
+  </p>
+</div>
+{% endblock %}

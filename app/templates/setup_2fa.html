@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Set Up Two-Factor Authentication{% endblock %}
+{% block content %}
+<div style="max-width:520px;margin:48px auto;padding:32px;background:#fff;border-radius:12px;box-shadow:0 2px 16px rgba(0,0,0,.1);">
+  <h2 style="margin-bottom:6px;">Set Up Authenticator App</h2>
+  <p style="color:#6b7280;margin-bottom:24px;">Scan the QR code below with Google Authenticator, Authy, or any TOTP app, then enter the 6-digit code to confirm.</p>
+
+  {% if error %}
+  <div style="background:#fee2e2;color:#991b1b;padding:10px 14px;border-radius:6px;margin-bottom:16px;">{{ error }}</div>
+  {% endif %}
+
+  <!-- QR Code -->
+  <div style="text-align:center;margin-bottom:20px;">
+    {% if qr_data_uri %}
+      <img src="{{ qr_data_uri }}" alt="TOTP QR Code" style="width:200px;height:200px;border:1px solid #e5e7eb;border-radius:8px;">
+    {% else %}
+      <p style="font-size:12px;color:#6b7280;">Can't display QR code. Copy the URL below into your app manually.</p>
+    {% endif %}
+  </div>
+
+  <!-- Manual entry URI -->
+  <details style="margin-bottom:20px;">
+    <summary style="cursor:pointer;color:#2563eb;font-size:13px;">Can't scan? Enter manually</summary>
+    <textarea readonly style="margin-top:8px;width:100%;padding:8px;font-size:11px;font-family:monospace;border:1px solid #d1d5db;border-radius:4px;resize:none;box-sizing:border-box;height:60px;">{{ totp_uri }}</textarea>
+  </details>
+
+  <!-- Backup codes (shown once) -->
+  <div style="background:#f0fdf4;border:1.5px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:20px;">
+    <strong style="color:#166534;">Save your backup codes</strong>
+    <p style="font-size:13px;color:#15803d;margin:6px 0 10px;">These codes can be used to log in if you lose access to your authenticator. Each code can only be used once. Store them somewhere safe — they won't be shown again.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+      {% for code in backup_codes %}
+        <code style="font-family:monospace;font-size:13px;background:#dcfce7;padding:4px 8px;border-radius:4px;">{{ code }}</code>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Confirm with OTP -->
+  <form method="post" action="/profile/setup-2fa">
+    <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+    <label style="display:block;font-weight:600;margin-bottom:6px;" for="otp_code">Enter the 6-digit code from your app to confirm</label>
+    <input
+      id="otp_code"
+      name="otp_code"
+      type="text"
+      inputmode="numeric"
+      autocomplete="one-time-code"
+      placeholder="000000"
+      maxlength="6"
+      autofocus
+      style="width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:6px;font-size:20px;letter-spacing:6px;text-align:center;box-sizing:border-box;"
+    >
+    <button type="submit"
+      style="margin-top:16px;width:100%;padding:11px;background:#16a34a;color:#fff;border:none;border-radius:6px;font-size:15px;font-weight:600;cursor:pointer;">
+      Enable Two-Factor Authentication
+    </button>
+  </form>
+
+  <p style="text-align:center;margin-top:16px;font-size:13px;">
+    <a href="/profile" style="color:#6b7280;">← Cancel</a>
+  </p>
+</div>
+{% endblock %}

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}JE #{{ je.id }}{% endblock %}
+{% block page_heading %}Journal Entry Detail{% endblock %}
+{% block content %}
+<h2>Journal entry #{{ je.id }} <span class="badge badge-{{ je.status }}">{{ je.status }}</span></h2>
+<p><a href="/journal-entries">&larr; Back to JE list</a></p>
+
+<div class="card">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;margin-bottom:16px;">
+    <div><span class="muted">Reference</span><br><strong>{{ je.reference }}</strong></div>
+    <div><span class="muted">Date</span><br><strong>{{ je.entry_date }}</strong></div>
+    <div><span class="muted">Description</span><br>{{ je.description }}</div>
+    <div>
+      <span class="muted">Classification</span><br>
+      <span style="font-size:0.85em;">{{ je.classification_method or "—" }}</span>
+      &nbsp;·&nbsp;
+      {% set pct = ((je.confidence_score or 0) * 100)|int %}
+      <span style="color:{% if pct>=80 %}#1a7a3c{% elif pct>=50 %}#b37a00{% else %}#c0392b{% endif %};">{{ pct }}% confidence</span>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Account Code</th>
+        <th>Account Title</th>
+        <th class="num">Debit (Dr)</th>
+        <th class="num">Credit (Cr)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% set ns = namespace(td=0, tc=0) %}
+      {% for l in lines %}
+      <tr>
+        <td class="muted" style="font-size:0.85em;">{{ loop.index }}</td>
+        <td><strong>{{ l.account_code }}</strong></td>
+        <td>{{ l.account_name }}</td>
+        <td class="num dr">{% if l.debit and l.debit != "0" %}{{ l.debit|money }}{% endif %}</td>
+        <td class="num cr">{% if l.credit and l.credit != "0" %}{{ l.credit|money }}{% endif %}</td>
+      </tr>
+      {% set ns.td = ns.td + (l.debit|float) %}
+      {% set ns.tc = ns.tc + (l.credit|float) %}
+      {% endfor %}
+      <tr style="font-weight:600;border-top:2px solid #1a3a52;">
+        <td colspan="3" style="text-align:right;">TOTAL</td>
+        <td class="num dr">{{ "%.2f"|format(ns.td) }}</td>
+        <td class="num cr">{{ "%.2f"|format(ns.tc) }}</td>
+      </tr>
+      {% if ns.td != ns.tc %}
+      <tr>
+        <td colspan="5" style="color:#c0392b;font-size:0.85em;text-align:center;">
+          ⚠ Entry is unbalanced — difference: {{ "%.2f"|format(ns.td - ns.tc) }}
+        </td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  {% if je.bank_transaction_id %}
+  <p style="margin-top:12px;"><a href="/transactions/{{ je.bank_transaction_id }}">→ View source bank transaction</a></p>
+  {% endif %}
+
+  {% if je.status == "draft" %}
+  <div style="margin-top:20px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+    <form method="post" action="/journal-entries/{{ je.id }}/approve">
+      <button type="submit" class="btn-primary" style="background:#1a7a3c;">✓ Approve &amp; post to ledger</button>
+    </form>
+    <form method="post" action="/journal-entries/{{ je.id }}/reject" style="display:flex;gap:8px;align-items:center;">
+      <input type="text" name="remarks" placeholder="Reason for rejection (optional)" style="min-width:220px;">
+      <button type="submit" style="background:#c0392b;color:#fff;border:none;border-radius:4px;padding:8px 16px;cursor:pointer;">✗ Reject</button>
+    </form>
+  </div>
+  <p class="muted" style="font-size:0.82em;margin-top:8px;">
+    Approving moves this entry to <strong>Approved</strong> status and records your username in the audit trail.
+    Rejecting marks it as <strong>Rejected</strong> so the source transaction can be re-classified.
+  </p>
+  {% elif je.status == "approved" %}
+  <div style="margin-top:16px;">
+    <span style="color:#1a7a3c;font-weight:600;">✓ Approved</span>
+    <span class="muted"> — this entry has been approved and is ready for posting.</span>
+    <form method="post" action="/journal-entries/{{ je.id }}/reject" style="display:inline;margin-left:16px;">
+      <input type="hidden" name="remarks" value="">
+      <button type="submit" style="background:none;border:1px solid #c0392b;color:#c0392b;border-radius:4px;padding:4px 12px;cursor:pointer;font-size:0.85em;">Reverse approval</button>
+    </form>
+  </div>
+  {% elif je.status == "rejected" %}
+  <div style="margin-top:16px;">
+    <span style="color:#c0392b;font-weight:600;">✗ Rejected</span>
+    <span class="muted"> — go to the source transaction to re-classify and regenerate.</span>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

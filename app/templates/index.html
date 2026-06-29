@@ -1,0 +1,524 @@
+{% extends "base.html" %}
+{% block title %}BookPoint Dashboard{% endblock %}
+{% block page_heading %}Dashboard{% endblock %}
+{% block content %}
+
+{# ── Attention banner ────────────────────────────────────────────────────── #}
+{% if attention_count > 0 %}
+<div class="alert-banner" style="display:flex;align-items:center;gap:12px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.35);border-radius:10px;padding:12px 18px;margin-bottom:18px;">
+  <span style="font-size:20px;">⚠️</span>
+  <div style="flex:1;">
+    <strong>{{ attention_count }} item{{ 's' if attention_count != 1 else '' }} need your attention</strong>
+    <span class="muted" style="margin-left:10px;font-size:13px;">
+      {% if stats.draft_jes %}{{ stats.draft_jes }} draft JE{{ 's' if stats.draft_jes != 1 }}{% endif %}
+      {% if stats.suspense %} · {{ stats.suspense }} suspense{% endif %}
+      {% if pending_requests %} · {{ pending_requests }} pending request{{ 's' if pending_requests != 1 }}{% endif %}
+      {% if overdue_count %} · {{ overdue_count }} overdue invoice{{ 's' if overdue_count != 1 }}{% endif %}
+    </span>
+  </div>
+  <a href="/journal-entries" class="button" style="font-size:12px;padding:5px 14px;white-space:nowrap;">Review now →</a>
+</div>
+{% endif %}
+
+{# ── Financial position strip ─────────────────────────────────────────────── #}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:20px;">
+
+  <div class="stat-box" style="border-left:4px solid #10b981;">
+    <div class="stat-icon emerald" style="font-size:18px;">↓</div>
+    <div>
+      <div class="stat-label">Total cash in</div>
+      <div class="stat-value" style="font-size:1.25rem;">₱{{ "{:,.0f}".format(total_cash_in) }}</div>
+      <div class="stat-note">credits across all uploads</div>
+    </div>
+  </div>
+
+  <div class="stat-box" style="border-left:4px solid #ef4444;">
+    <div class="stat-icon rose" style="font-size:18px;">↑</div>
+    <div>
+      <div class="stat-label">Total cash out</div>
+      <div class="stat-value" style="font-size:1.25rem;">₱{{ "{:,.0f}".format(total_cash_out) }}</div>
+      <div class="stat-note">debits across all uploads</div>
+    </div>
+  </div>
+
+  <div class="stat-box" style="border-left:4px solid {% if net_cash >= 0 %}#10b981{% else %}#ef4444{% endif %};">
+    <div class="stat-icon {% if net_cash >= 0 %}emerald{% else %}rose{% endif %}" style="font-size:18px;">≈</div>
+    <div>
+      <div class="stat-label">Net cash position</div>
+      <div class="stat-value" style="font-size:1.25rem;color:{% if net_cash >= 0 %}#059669{% else %}#dc2626{% endif %};">
+        {% if net_cash >= 0 %}+{% endif %}₱{{ "{:,.0f}".format(net_cash) }}
+      </div>
+      <div class="stat-note">in – out (all-time)</div>
+    </div>
+  </div>
+
+  {% if pending_requests > 0 %}
+  <a class="stat-box stat-warn" href="/requests" style="border-left:4px solid #f59e0b;text-decoration:none;">
+    <div class="stat-icon amber" style="font-size:18px;">⏳</div>
+    <div>
+      <div class="stat-label">Pending payments</div>
+      <div class="stat-value" style="font-size:1.25rem;">₱{{ "{:,.0f}".format(pending_requests_total) }}</div>
+      <div class="stat-note">{{ pending_requests }} request{{ 's' if pending_requests != 1 }} awaiting approval</div>
+    </div>
+  </a>
+  {% else %}
+  <div class="stat-box" style="border-left:4px solid #e2e8f0;">
+    <div class="stat-icon" style="font-size:18px;">✅</div>
+    <div>
+      <div class="stat-label">Pending payments</div>
+      <div class="stat-value" style="font-size:1.25rem;">₱0</div>
+      <div class="stat-note">no requests pending</div>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+{# ── Operational KPI row ──────────────────────────────────────────────────── #}
+<div class="stats kpi-grid" style="margin-bottom:20px;">
+  <a class="stat-box" href="/upload">
+    <div class="stat-icon emerald">UP</div>
+    <div>
+      <div class="stat-label">Uploads</div>
+      <div class="stat-value">{{ stats.uploads }}</div>
+      <div class="stat-note">source files</div>
+    </div>
+  </a>
+  <a class="stat-box" href="/transactions">
+    <div class="stat-icon blue">TX</div>
+    <div>
+      <div class="stat-label">Transactions</div>
+      <div class="stat-value">{{ stats.transactions }}</div>
+      <div class="stat-note">
+        {% if stats.tx_trend %}<span class="trend {% if '+' in stats.tx_trend %}trend-up{% else %}trend-down{% endif %}">{{ stats.tx_trend }} vs last month</span>
+        {% else %}total ingested{% endif %}
+      </div>
+    </div>
+  </a>
+  <a class="stat-box" href="/suppliers">
+    <div class="stat-icon teal">SM</div>
+    <div>
+      <div class="stat-label">Supplier-matched</div>
+      <div class="stat-value">{{ stats.matched }}</div>
+      <div class="stat-note">{{ stats.match_pct }}% match rate</div>
+    </div>
+  </a>
+  <a class="stat-box {% if stats.draft_jes > 0 %}stat-warn{% endif %}" href="/journal-entries">
+    <div class="stat-icon amber">JE</div>
+    <div>
+      <div class="stat-label">Draft JEs</div>
+      <div class="stat-value">{{ stats.draft_jes }}</div>
+      <div class="stat-note">
+        {% if stats.draft_jes > 0 %}<span class="pill-warn">awaiting review</span>{% else %}all clear{% endif %}
+      </div>
+    </div>
+  </a>
+  <a class="stat-box stat-good" href="/journal-entries">
+    <div class="stat-icon green">OK</div>
+    <div>
+      <div class="stat-label">Approved JEs</div>
+      <div class="stat-value">{{ stats.approved_jes }}</div>
+      <div class="stat-note">
+        {% if stats.je_trend %}<span class="trend {% if '+' in stats.je_trend %}trend-up{% else %}trend-down{% endif %}">{{ stats.je_trend }}</span>
+        {% else %}approved entries{% endif %}
+      </div>
+    </div>
+  </a>
+  <a class="stat-box {% if stats.suspense > 0 %}stat-danger{% endif %}" href="/transactions">
+    <div class="stat-icon rose">SP</div>
+    <div>
+      <div class="stat-label">In suspense</div>
+      <div class="stat-value">{{ stats.suspense }}</div>
+      <div class="stat-note">
+        {% if stats.suspense > 0 %}<span class="pill-danger">classify now</span>{% else %}no suspense items{% endif %}
+      </div>
+    </div>
+  </a>
+</div>
+
+{# ── Main content grid ────────────────────────────────────────────────────── #}
+<div class="dashboard-grid">
+
+  {# Left column: charts + modules #}
+  <div>
+
+    {# Cash flow chart #}
+    <div class="card chart-card" style="margin-bottom:16px;">
+      <div class="section-head">
+        <div>
+          <h3>Cash flow — last 6 months</h3>
+          <p class="muted">Monthly bank credits (in) vs debits (out) from uploaded statements</p>
+        </div>
+        <a class="button ghost" href="/transactions">All transactions</a>
+      </div>
+      <canvas id="cashFlowChart" height="120"></canvas>
+    </div>
+
+    {# Transaction volume + JE donut side by side #}
+    <div class="charts-row" style="margin-bottom:16px;">
+      <div class="card chart-card">
+        <div class="section-head">
+          <div><h3>Transaction volume</h3><p class="muted">Count per month</p></div>
+        </div>
+        <canvas id="txChart" height="110"></canvas>
+      </div>
+      <div class="card chart-card chart-card-sm">
+        <div class="section-head">
+          <div><h3>JE status</h3><p class="muted">Journal entry breakdown</p></div>
+        </div>
+        <div class="donut-wrap">
+          <canvas id="jeChart" height="130"></canvas>
+        </div>
+        <div class="donut-legend">
+          <span class="legend-dot" style="background:#f59e0b;"></span> Draft: {{ je_draft }}
+          <span class="legend-dot" style="background:#10b981;margin-left:10px;"></span> Approved: {{ je_approved }}
+          <span class="legend-dot" style="background:#ef4444;margin-left:10px;"></span> Rejected: {{ je_rejected }}
+        </div>
+      </div>
+    </div>
+
+    {# Recent bank transactions #}
+    {% if recent_transactions %}
+    <div class="card" style="margin-bottom:16px;padding:0;overflow:hidden;">
+      <div class="section-head" style="padding:14px 16px 10px;">
+        <div><h3>Recent bank transactions</h3><p class="muted">Latest entries from uploaded statements</p></div>
+        <a class="button ghost" href="/transactions">View all</a>
+      </div>
+      <table style="margin:0;border-radius:0;">
+        <thead>
+          <tr>
+            <th style="width:90px;">Date</th>
+            <th>Description / Counterparty</th>
+            <th class="num" style="width:110px;">Debit</th>
+            <th class="num" style="width:110px;">Credit</th>
+            <th style="width:90px;">Match</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for tx in recent_transactions %}
+        <tr>
+          <td class="muted" style="font-size:12px;white-space:nowrap;">{{ (tx.transaction_date or '')[:10] }}</td>
+          <td style="max-width:260px;">
+            <div style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              {{ tx.counterparty_name or tx.description or '—' }}
+            </div>
+            {% if tx.supplier_name %}
+            <div class="muted" style="font-size:11px;">{{ tx.supplier_name }}</div>
+            {% endif %}
+          </td>
+          <td class="num" style="color:#dc2626;font-size:13px;">
+            {% if tx.debit_amount and tx.debit_amount != '0' and tx.debit_amount != '0.00' %}
+            ₱{{ "{:,.2f}".format(tx.debit_amount | float) }}
+            {% else %}—{% endif %}
+          </td>
+          <td class="num" style="color:#059669;font-size:13px;">
+            {% if tx.credit_amount and tx.credit_amount != '0' and tx.credit_amount != '0.00' %}
+            ₱{{ "{:,.2f}".format(tx.credit_amount | float) }}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if tx.supplier_name %}
+              <span class="badge success" style="font-size:10px;">matched</span>
+            {% elif tx.classification and '5999' not in tx.classification %}
+              <span class="badge" style="font-size:10px;background:#ede9fe;color:#7c3aed;">classified</span>
+            {% else %}
+              <span class="badge" style="font-size:10px;">pending</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {# Core modules grid #}
+    <section class="card modules-panel">
+      <div class="section-head">
+        <div><h3>Core modules</h3><p class="muted">Jump to any accounting workflow.</p></div>
+      </div>
+      <div class="modules">
+        <a class="module-card" href="/upload"><div class="icon emerald">BU</div><div><div class="title">Bank Upload &amp; Payment Register</div><div class="desc">Ingest statements, normalize transactions, classify, and prepare entries.</div></div></a>
+        <a class="module-card" href="/payments"><div class="icon blue">PY</div><div><div class="title">Payments register</div><div class="desc">Upload RA260 payment instructions and generate balanced draft entries.</div></div></a>
+        <a class="module-card" href="/invoices"><div class="icon teal">IM</div><div><div class="title">Invoices &amp; matching</div><div class="desc">Match supplier invoices to payments; flag advances and accruals.</div></div></a>
+        <a class="module-card" href="/journal-entries"><div class="icon violet">JE</div><div><div class="title">Journal entries</div><div class="desc">Review, approve, and trace debit/credit details from any source.</div></div></a>
+        <a class="module-card" href="/reconciliation-workspace"><div class="icon amber">BR</div><div><div class="title">Reconciliation workspace</div><div class="desc">Compare any two Excel/CSV files: bank, system, ledger, or raw reports.</div></div></a>
+        <a class="module-card" href="/ggr-summary"><div class="icon green">GS</div><div><div class="title">GGR weekly summary</div><div class="desc">Upload a monthly PER GGR report and auto-total every week.</div></div></a>
+        <a class="module-card" href="/commission"><div class="icon green">CM</div><div><div class="title">Commission computation</div><div class="desc">Upload Sub Affiliate CSV, compute commissions, carry negative balances.</div></div></a>
+        <a class="module-card" href="/closing"><div class="icon rose">CL</div><div><div class="title">Closing of books</div><div class="desc">Focus on material changes, explanations, and subsidiary ledger basis.</div></div></a>
+        <a class="module-card" href="/taxes"><div class="icon green">BT</div><div><div class="title">BIR taxes</div><div class="desc">Track tax forms, deadlines, and filing status across periods.</div></div></a>
+        <a class="module-card" href="/fs"><div class="icon slate">FS</div><div><div class="title">Financial statements</div><div class="desc">Upload, review, annotate, and export IS/BS worksheets.</div></div></a>
+      </div>
+    </section>
+  </div>
+
+  {# Right sidebar: review queue + recent activity #}
+  <aside>
+
+    {# Review queue #}
+    <div class="card approval-panel" style="margin-bottom:16px;">
+      <div class="section-head">
+        <h3>Review queue</h3>
+        {% if attention_count > 0 %}
+        <span class="badge" style="background:#fef3c7;color:#92400e;font-weight:700;">{{ attention_count }}</span>
+        {% else %}
+        <span class="badge success">all clear</span>
+        {% endif %}
+      </div>
+
+      <a class="queue-row {% if stats.draft_jes > 0 %}queue-warn{% endif %}" href="/journal-entries">
+        <span>Draft journal entries</span>
+        <strong class="{% if stats.draft_jes > 0 %}text-amber{% endif %}">{{ stats.draft_jes }}</strong>
+      </a>
+      <a class="queue-row {% if stats.suspense > 0 %}queue-danger{% endif %}" href="/transactions">
+        <span>Suspense transactions</span>
+        <strong class="{% if stats.suspense > 0 %}text-rose{% endif %}">{{ stats.suspense }}</strong>
+      </a>
+      <a class="queue-row {% if pending_requests > 0 %}queue-warn{% endif %}" href="/requests">
+        <span>Pending requests</span>
+        <span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+          <strong class="{% if pending_requests > 0 %}text-amber{% endif %}">{{ pending_requests }}</strong>
+          {% if pending_requests_total > 0 %}
+          <small class="muted" style="font-size:11px;">₱{{ "{:,.0f}".format(pending_requests_total) }}</small>
+          {% endif %}
+        </span>
+      </a>
+      <a class="queue-row {% if overdue_count > 0 %}queue-danger{% endif %}" href="/invoices">
+        <span>Overdue invoices</span>
+        <strong class="{% if overdue_count > 0 %}text-rose{% endif %}">{{ overdue_count }}</strong>
+      </a>
+      <a class="queue-row" href="/invoices">
+        <span>Open invoices</span>
+        <span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+          <strong>{{ open_invoices }}</strong>
+          {% if open_invoices_total > 0 %}
+          <small class="muted" style="font-size:11px;">₱{{ "{:,.0f}".format(open_invoices_total) }}</small>
+          {% endif %}
+        </span>
+      </a>
+      <a class="queue-row" href="/closing">
+        <span>Closing review</span>
+        <strong>→</strong>
+      </a>
+
+      {% if attention_count > 0 %}
+      <div class="queue-alert">
+        <span class="alert-dot"></span>
+        {{ attention_count }} item{{ 's' if attention_count != 1 }} need attention
+      </div>
+      {% else %}
+      <div class="mini-note" style="margin-top:10px;">✅ Queue is clear — nothing pending.</div>
+      {% endif %}
+    </div>
+
+    {# Recent JEs #}
+    <div class="card" style="margin-bottom:16px;">
+      <div class="section-head"><h3>Recent JEs</h3><a class="button ghost" href="/journal-entries">View all</a></div>
+      {% if recent_jes %}
+        {% for je in recent_jes %}
+        <a class="activity-row" href="/journal-entries/{{ je.id }}">
+          <span class="badge badge-{{ je.status }}">{{ je.status }}</span>
+          <span class="activity-ref">{{ je.reference_number or ("#" ~ je.id) }}</span>
+          <span class="activity-time muted">{{ je.created_at[:10] }}</span>
+        </a>
+        {% endfor %}
+      {% else %}
+        <p class="muted" style="padding:8px 0;">No journal entries yet.</p>
+      {% endif %}
+    </div>
+
+    {# Recent uploads #}
+    <div class="card">
+      <div class="section-head"><h3>Recent uploads</h3><a class="button ghost" href="/upload">Upload</a></div>
+      {% if recent_uploads %}
+        {% for u in recent_uploads %}
+        <div class="activity-row" style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-size:13px;font-weight:500;">{{ u.filename }}</div>
+            <div class="muted" style="font-size:11px;">{{ u.period_covered or u.uploaded_at[:10] }} · {{ u.parsed_count }} rows</div>
+          </div>
+          <span class="badge">{{ u.parsed_count }}</span>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="muted" style="padding:8px 0;">No uploads yet. <a href="/upload">Upload a statement</a>.</p>
+      {% endif %}
+    </div>
+
+  </aside>
+</div>
+
+{# ── Calendar ────────────────────────────────────────────────────────────── #}
+{% if request.state.can_use_calendar %}
+<div class="dashboard-grid calendar-dashboard-grid">
+  <section class="card dashboard-calendar-card">
+    <div class="section-head">
+      <div><h3>Monthly calendar</h3><p class="muted">{{ calendar_month_name }}</p></div>
+      <a class="button ghost" href="/calendar">Manage</a>
+    </div>
+    <div class="month-calendar">
+      <div class="weekday">Sun</div><div class="weekday">Mon</div><div class="weekday">Tue</div>
+      <div class="weekday">Wed</div><div class="weekday">Thu</div><div class="weekday">Fri</div><div class="weekday">Sat</div>
+      {% for week in calendar_weeks %}{% for day in week %}
+        <div class="month-day {% if not day.in_month %}muted-day{% endif %} {% if day.is_today %}today{% endif %}">
+          <div class="day-number">{{ day.day }}</div>
+          <div class="day-events">
+            {% for ev in day.events[:3] %}
+              <a class="calendar-pill {{ ev.visibility }} {% if ev.is_done %}done{% endif %}" href="/calendar" title="{{ ev.title }}">
+                {% if ev.start_time %}<span>{{ ev.start_time }}</span>{% endif %}{{ ev.title }}
+              </a>
+            {% endfor %}
+            {% if day.events|length > 3 %}<a class="more-events" href="/calendar">+{{ day.events|length - 3 }} more</a>{% endif %}
+          </div>
+        </div>
+      {% endfor %}{% endfor %}
+    </div>
+  </section>
+  <aside class="card upcoming-card">
+    <div class="section-head"><h3>This month</h3><span class="badge info">live</span></div>
+    {% set open_events = calendar_events|selectattr('is_done', 'equalto', 0)|list %}
+    {% if open_events %}
+      <div class="upcoming-list">
+        {% for ev in open_events[:6] %}
+          <a class="upcoming-item" href="/calendar">
+            <span class="event-date">{{ ev.event_date }}</span>
+            <strong>{{ ev.title }}</strong>
+            <small>{% if ev.start_time %}{{ ev.start_time }}{% else %}All day{% endif %} · {{ ev.visibility|title }}</small>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="muted">No open events. <a href="/calendar">Add one</a>.</p>
+    {% endif %}
+  </aside>
+</div>
+{% endif %}
+
+{# ── Chart.js ────────────────────────────────────────────────────────────── #}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script nonce="{{ request.state.csp_nonce }}">
+(function() {
+  const labels      = {{ monthly_labels  | safe }};
+  const txCounts    = {{ monthly_values  | safe }};
+  const debits      = {{ monthly_debits  | safe }};
+  const credits     = {{ monthly_credits | safe }};
+  const isDraft     = {{ je_draft }};
+  const isApproved  = {{ je_approved }};
+  const isRejected  = {{ je_rejected }};
+
+  const gridColor  = 'rgba(0,0,0,0.05)';
+  const tickFont   = { size: 11 };
+
+  function phpMoney(v) {
+    return '₱' + Number(v).toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  }
+
+  // ── Cash flow chart (credits vs debits grouped bar) ──────────────────
+  const cfCtx = document.getElementById('cashFlowChart');
+  if (cfCtx) {
+    new Chart(cfCtx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Cash In (credits)',
+            data: credits,
+            backgroundColor: 'rgba(16,185,129,0.2)',
+            borderColor: '#10b981',
+            borderWidth: 2,
+            borderRadius: 6,
+            hoverBackgroundColor: 'rgba(16,185,129,0.35)',
+          },
+          {
+            label: 'Cash Out (debits)',
+            data: debits,
+            backgroundColor: 'rgba(239,68,68,0.15)',
+            borderColor: '#ef4444',
+            borderWidth: 2,
+            borderRadius: 6,
+            hoverBackgroundColor: 'rgba(239,68,68,0.28)',
+          },
+        ]
+      },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { position: 'top', labels: { font: tickFont, boxWidth: 12 } },
+          tooltip: {
+            callbacks: {
+              label: ctx => ` ${ctx.dataset.label}: ${phpMoney(ctx.parsed.y)}`
+            }
+          }
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: tickFont } },
+          y: {
+            grid: { color: gridColor },
+            beginAtZero: true,
+            ticks: { font: tickFont, callback: v => phpMoney(v) }
+          }
+        }
+      }
+    });
+  }
+
+  // ── Monthly tx volume bar ────────────────────────────────────────────
+  const txCtx = document.getElementById('txChart');
+  if (txCtx) {
+    new Chart(txCtx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Transactions',
+          data: txCounts,
+          backgroundColor: 'rgba(99,102,241,0.15)',
+          borderColor: '#6366f1',
+          borderWidth: 2,
+          borderRadius: 8,
+          hoverBackgroundColor: 'rgba(99,102,241,0.3)',
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: tickFont } },
+          y: { grid: { color: gridColor }, beginAtZero: true, ticks: { precision: 0, font: tickFont } }
+        }
+      }
+    });
+  }
+
+  // ── JE donut ─────────────────────────────────────────────────────────
+  const jeCtx = document.getElementById('jeChart');
+  if (jeCtx && (isDraft + isApproved + isRejected) > 0) {
+    new Chart(jeCtx, {
+      type: 'doughnut',
+      data: {
+        labels: ['Draft', 'Approved', 'Rejected'],
+        datasets: [{
+          data: [isDraft, isApproved, isRejected],
+          backgroundColor: ['#f59e0b', '#10b981', '#ef4444'],
+          borderWidth: 2,
+          borderColor: '#fff',
+          hoverOffset: 6,
+        }]
+      },
+      options: {
+        responsive: true,
+        cutout: '68%',
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed}` } }
+        }
+      }
+    });
+  } else if (jeCtx) {
+    jeCtx.parentElement.innerHTML = '<p style="text-align:center;color:var(--muted);padding:30px 0;font-size:13px;">No journal entries yet.</p>';
+  }
+})();
+</script>
+{% endblock %}

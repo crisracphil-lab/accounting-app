@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block page_heading %}Settings{% endblock %}
+{% block content %}
+
+{% if message %}<div class="alert success" style="margin-bottom:14px">{{ message }}</div>{% endif %}
+{% if error %}<div class="alert danger" style="margin-bottom:14px">{{ error }}</div>{% endif %}
+
+{# ── Companies ──────────────────────────────────────────────────────────────── #}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;">
+
+  <div class="card" style="margin:0;">
+    <h3>Add Company</h3>
+    <p class="muted" style="font-size:13px;">Companies group users, departments, and payment requests.</p>
+    <form method="post" action="/settings/companies/create" style="margin-top:10px;display:flex;gap:8px;align-items:flex-end;">
+      <div style="flex:1;">
+        <label style="font-size:12px;font-weight:600;">Company name <span style="color:#dc2626">*</span></label>
+        <input type="text" name="name" required placeholder="e.g. RAC Philippines Corp."
+               style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:4px;">
+      </div>
+      <button type="submit" class="button primary" style="white-space:nowrap;">Add Company</button>
+    </form>
+  </div>
+
+  <div class="card" style="margin:0;">
+    <div class="stat-icon emerald" style="font-size:28px;margin-bottom:8px;">🏢</div>
+    <h3>Companies</h3>
+    <p class="muted" style="font-size:13px;margin-top:4px;">
+      {{ companies|selectattr("is_active")|list|length }} active / {{ companies|length }} total
+    </p>
+    <div class="table-wrap" style="margin-top:10px;">
+      <table>
+        <thead><tr><th>Name</th><th>Status</th><th style="width:80px;">Actions</th></tr></thead>
+        <tbody>
+        {% for c in companies %}
+        <tr style="{% if not c.is_active %}opacity:0.5;{% endif %}">
+          <td><strong>{{ c.name }}</strong></td>
+          <td>{% if c.is_active %}<span class="badge success">Active</span>{% else %}<span class="badge">Inactive</span>{% endif %}</td>
+          <td>
+            <details style="display:inline;">
+              <summary class="button" style="padding:3px 10px;font-size:12px;cursor:pointer;list-style:none;">Edit</summary>
+              <div style="position:absolute;z-index:100;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;min-width:260px;box-shadow:0 4px 20px rgba(0,0,0,.14);right:0;">
+                <form method="post" action="/settings/companies/{{ c.id }}/update">
+                  <div style="margin-bottom:7px;">
+                    <label style="font-size:12px;font-weight:600;">Name</label>
+                    <input type="text" name="name" value="{{ c.name }}" required
+                           style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px;box-sizing:border-box;">
+                  </div>
+                  <div style="margin-bottom:10px;">
+                    <label style="font-size:12px;font-weight:600;">Status</label>
+                    <select name="is_active" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px;">
+                      <option value="1" {% if c.is_active %}selected{% endif %}>Active</option>
+                      <option value="0" {% if not c.is_active %}selected{% endif %}>Inactive</option>
+                    </select>
+                  </div>
+                  <button type="submit" class="button primary" style="font-size:12px;padding:5px 14px;">Save</button>
+                </form>
+              </div>
+            </details>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="muted" style="text-align:center;padding:20px;">No companies yet.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{# ── Departments ─────────────────────────────────────────────────────────────── #}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;">
+
+  <div class="card" style="margin:0;">
+    <h3>Add Department</h3>
+    <p class="muted" style="font-size:13px;">Departments are assigned to users for request routing.</p>
+    <form method="post" action="/settings/departments/create" style="margin-top:10px;">
+      <div style="display:grid;gap:8px;">
+        <div>
+          <label style="font-size:12px;font-weight:600;">Department name <span style="color:#dc2626">*</span></label>
+          <input type="text" name="name" required placeholder="e.g. IT Department"
+                 style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;">Company</label>
+          <select name="company_id" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+            <option value="0">— No company —</option>
+            {% for c in companies %}{% if c.is_active %}<option value="{{ c.id }}">{{ c.name }}</option>{% endif %}{% endfor %}
+          </select>
+        </div>
+        <div>
+          <button type="submit" class="button primary">Add Department</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div class="card" style="margin:0;">
+    <div class="stat-icon" style="font-size:28px;margin-bottom:8px;">🗂️</div>
+    <h3>Departments</h3>
+    <p class="muted" style="font-size:13px;margin-top:4px;">
+      {{ departments|selectattr("is_active")|list|length }} active / {{ departments|length }} total
+    </p>
+    <div class="table-wrap" style="margin-top:10px;">
+      <table>
+        <thead><tr><th>Department</th><th>Company</th><th>Status</th><th style="width:80px;">Actions</th></tr></thead>
+        <tbody>
+        {% for d in departments %}
+        <tr style="{% if not d.is_active %}opacity:0.5;{% endif %}">
+          <td><strong>{{ d.name }}</strong></td>
+          <td class="muted small">{{ d.company_name or '—' }}</td>
+          <td>{% if d.is_active %}<span class="badge success">Active</span>{% else %}<span class="badge">Inactive</span>{% endif %}</td>
+          <td>
+            <details style="display:inline;">
+              <summary class="button" style="padding:3px 10px;font-size:12px;cursor:pointer;list-style:none;">Edit</summary>
+              <div style="position:absolute;z-index:100;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;min-width:280px;box-shadow:0 4px 20px rgba(0,0,0,.14);right:0;">
+                <form method="post" action="/settings/departments/{{ d.id }}/update">
+                  <div style="margin-bottom:7px;">
+                    <label style="font-size:12px;font-weight:600;">Name</label>
+                    <input type="text" name="name" value="{{ d.name }}" required
+                           style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px;box-sizing:border-box;">
+                  </div>
+                  <div style="margin-bottom:7px;">
+                    <label style="font-size:12px;font-weight:600;">Company</label>
+                    <select name="company_id" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px;">
+                      <option value="0">— No company —</option>
+                      {% for c in companies %}
+                      <option value="{{ c.id }}" {% if d.company_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div style="margin-bottom:10px;">
+                    <label style="font-size:12px;font-weight:600;">Status</label>
+                    <select name="is_active" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px;">
+                      <option value="1" {% if d.is_active %}selected{% endif %}>Active</option>
+                      <option value="0" {% if not d.is_active %}selected{% endif %}>Inactive</option>
+                    </select>
+                  </div>
+                  <button type="submit" class="button primary" style="font-size:12px;padding:5px 14px;">Save</button>
+                </form>
+              </div>
+            </details>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted" style="text-align:center;padding:20px;">No departments yet.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{# ── Email / SMTP ────────────────────────────────────────────────────────────── #}
+<div class="card">
+  <h3>📧 Email Notifications (SMTP)</h3>
+  <p class="muted" style="font-size:13px;margin-top:4px;margin-bottom:14px;">
+    Configure an outbound mail server so BookPoint can send payment confirmations and approval notifications.
+    Leave blank to disable email notifications.
+  </p>
+  <form method="post" action="/settings/smtp">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+      <div>
+        <label style="font-size:12px;font-weight:600;">SMTP host</label>
+        <input type="text" name="smtp_host" value="{{ app_settings.get('smtp_host','') }}" placeholder="smtp.gmail.com"
+               style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;">Port</label>
+        <input type="text" name="smtp_port" value="{{ app_settings.get('smtp_port','587') }}" placeholder="587"
+               style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;">TLS</label>
+        <select name="smtp_tls" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+          <option value="1" {% if app_settings.get('smtp_tls') == '1' %}selected{% endif %}>Enabled (recommended)</option>
+          <option value="0" {% if app_settings.get('smtp_tls') != '1' %}selected{% endif %}>Disabled</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;">Username</label>
+        <input type="text" name="smtp_user" value="{{ app_settings.get('smtp_user','') }}" placeholder="you@gmail.com"
+               style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;">Password <span class="muted">(leave blank to keep current)</span></label>
+        <input type="password" name="smtp_password" placeholder="••••••••"
+               style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;">From address</label>
+        <input type="text" name="smtp_from" value="{{ app_settings.get('smtp_from','') }}" placeholder="noreply@company.com"
+               style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">
+      </div>
+    </div>
+    {% if app_settings.get('smtp_host') %}
+    <div style="margin-bottom:12px;padding:8px 12px;background:rgba(16,185,129,.08);border-radius:6px;font-size:12px;">
+      ✅ SMTP configured: <strong>{{ app_settings.get('smtp_host') }}:{{ app_settings.get('smtp_port','587') }}</strong>
+      — from <strong>{{ app_settings.get('smtp_from') or app_settings.get('smtp_user') }}</strong>
+    </div>
+    {% else %}
+    <div style="margin-bottom:12px;padding:8px 12px;background:rgba(100,116,139,.07);border-radius:6px;font-size:12px;color:var(--text-muted);">
+      ⚠️ No SMTP configured — email notifications are disabled.
+    </div>
+    {% endif %}
+    <button type="submit" class="button primary">Save Email Settings</button>
+  </form>
+</div>
+
+{# ── Danger Zone ─────────────────────────────────────────────────────────────── #}
+<div class="card" style="margin-top:18px;border:1.5px solid #fca5a5;">
+  <h3 style="color:#dc2626;">⚠️ Danger Zone</h3>
+  <p class="muted" style="font-size:13px;margin-top:4px;margin-bottom:14px;">
+    These actions are irreversible and affect all users immediately. Use with caution.
+  </p>
+
+  <div style="display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap;">
+    <div style="flex:1;min-width:260px;">
+      <strong style="font-size:13px;">Rotate all sessions</strong>
+      <p class="muted" style="font-size:12px;margin:4px 0 10px;">
+        Immediately signs out every active user (including you) by invalidating all
+        session tokens. Use this if you suspect session cookies have been compromised.
+        All users will need to log in again.
+      </p>
+      <form method="post" action="/settings/rotate-sessions"
+            onsubmit="return confirm('This will immediately sign out ALL active users, including you.\n\nYou will be redirected to the login page.\n\nProceed?')">
+        <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+        <button type="submit"
+                style="background:#dc2626;color:#fff;border:none;border-radius:6px;padding:7px 18px;font-size:13px;font-weight:600;cursor:pointer;">
+          Rotate All Sessions
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

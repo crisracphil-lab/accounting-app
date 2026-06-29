@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+{% block title %}BookPoint - New Request{% endblock %}
+{% block page_heading %}New payment request{% endblock %}
+{% block content %}
+<div class="card narrow-card">
+  <div class="section-head">
+    <div>
+      <h3>Submit request</h3>
+      <p class="muted">Attach purchase orders, invoices, receipts, or reimbursement forms. Maximum 10 files.</p>
+    </div>
+  </div>
+  {% if error %}<div class="alert danger">{{ error }}</div>{% endif %}
+
+  <form id="req-form" data-disable-on-submit="1" action="/requests/create" method="post" enctype="multipart/form-data" class="form-grid">
+    <label>Request type
+      <select name="request_type" id="req-type" onchange="toggleLineItems()">
+        <option value="supplier_payment">Supplier payment</option>
+        <option value="reimbursement">Reimbursement</option>
+      </select>
+    </label>
+
+    {% if companies|length > 1 %}
+    <label>Company
+      <select name="company_id" disabled>
+        {% for c in companies %}<option value="{{ c.id }}" {% if c.id == user.company_id %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+      </select>
+      <span class="muted small">Company follows your assigned user profile.</span>
+    </label>
+    {% endif %}
+
+    <label>Department
+      <select name="department_name" required>
+        <option value="">Select department</option>
+        {% for d in departments %}<option value="{{ d.name }}" {% if user.department_id == d.id %}selected{% endif %}>{{ d.name }}</option>{% endfor %}
+      </select>
+    </label>
+
+    <label>Your email <span class="muted small">(for payment notification)</span>
+      <input type="email" name="requester_email" placeholder="e.g. yourname@example.com">
+      <span class="muted small">Enter your personal email so you receive a notification when your request is paid.</span>
+    </label>
+
+    <label>Supplier / payee<input type="text" name="payee_name" required></label>
+    <label>Supplier name for invoice tab<input type="text" name="supplier_name" placeholder="Leave blank to use payee"></label>
+    <label class="wide">Description / purpose<textarea name="description" required placeholder="What is this payment or reimbursement for?"></textarea></label>
+    <label>Due date<input type="date" name="due_date"></label>
+
+    {# ── Line items (shown for reimbursements, optional for supplier payments) ── #}
+    <div class="wide" id="line-items-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div>
+          <strong>Expense line items</strong>
+          <p class="muted small" style="margin:2px 0 0">Break down each expense. Accounting will assign account codes on review.</p>
+        </div>
+        <button type="button" class="button" onclick="addLineItem()" style="white-space:nowrap">+ Add row</button>
+      </div>
+
+      <div class="table-wrap" style="margin-bottom:6px">
+        <table id="line-items-table">
+          <thead>
+            <tr>
+              <th>Description / particulars</th>
+              <th style="width:150px" class="num">Amount (PHP)</th>
+              <th style="width:36px"></th>
+            </tr>
+          </thead>
+          <tbody id="line-items-body">
+            {# First row pre-rendered — JS adds more #}
+            <tr class="li-row">
+              <input type="hidden" name="li_account_id" value="0">
+              <td><input type="text" name="li_description" placeholder="e.g. Grab to client meeting, office supplies…" style="width:100%"></td>
+              <td><input type="number" name="li_amount" step="0.01" min="0" placeholder="0.00" class="li-amount" style="width:100%;text-align:right" oninput="updateTotal()"></td>
+              <td></td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td style="text-align:right;font-weight:700;padding-right:10px">Total</td>
+              <td class="num" style="font-weight:800;font-size:16px" id="li-total">0.00</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p class="muted small">Leave amount blank on unused rows — they will be ignored.</p>
+    </div>
+
+    {# Single amount field — shown for supplier payments or as fallback #}
+    <div id="single-amount-section" style="display:none">
+      <label>Amount (PHP)<input type="number" step="0.01" name="amount" id="single-amount" min="0" placeholder="0.00"></label>
+      <input type="hidden" name="account_id" value="0">
+    </div>
+
+    <label class="wide">PO / invoice / receipt / reimbursement form <span id="file-label-hint">(attach supporting documents)</span>
+      <input type="file" name="file" id="req-file-input" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xlsm,.xls,.csv,.doc,.docx" multiple>
+      <span class="muted small" id="file-req-hint">At least 1 and maximum 10 attachments required.</span>
+      <span id="auto-detect-status" style="display:none;margin-top:6px;font-size:13px"></span>
+    </label>
+
+    <div class="form-actions">
+      <a class="button" href="/requests">Cancel</a>
+      <button class="button primary" type="submit">Submit request</button>
+    </div>
+  </form>
+</div>
+
+<script nonce="{{ request.state.csp_nonce }}">
+function addLineItem(opts) {
+  opts = opts || {};
+  const tbody = document.getElementById("line-items-body");
+  const tr = document.createElement("tr");
+  tr.className = "li-row";
+
+  tr.innerHTML = `
+    <input type="hidden" name="li_account_id" value="0">
+    <td><input type="text" name="li_description" value="${(opts.description || '').replace(/"/g,'&quot;')}"
+               placeholder="e.g. Office supplies, Grab to Makati…" style="width:100%"></td>
+    <td><input type="number" name="li_amount" step="0.01" min="0" value="${opts.amount || ''}"
+               placeholder="0.00" class="li-amount" style="width:100%;text-align:right" oninput="updateTotal()"></td>
+    <td><button type="button" onclick="removeRow(this)"
+                style="background:none;border:none;cursor:pointer;color:var(--danger,#dc2626);font-size:18px;padding:0 4px"
+                title="Remove">×</button></td>
+  `;
+  tbody.appendChild(tr);
+  if (!opts.amount) tr.querySelector("input[type=text]").focus();
+  updateTotal();
+  return tr;
+}
+
+function removeRow(btn) {
+  btn.closest("tr").remove();
+  updateTotal();
+}
+
+function updateTotal() {
+  let total = 0;
+  document.querySelectorAll(".li-amount").forEach(inp => {
+    const v = parseFloat(inp.value);
+    if (!isNaN(v) && v > 0) total += v;
+  });
+  document.getElementById("li-total").textContent =
+    total.toLocaleString("en-PH", {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function toggleLineItems() {
+  const type = document.getElementById("req-type").value;
+  const liSection      = document.getElementById("line-items-section");
+  const singleSection  = document.getElementById("single-amount-section");
+  const singleInput    = document.getElementById("single-amount");
+  if (type === "reimbursement") {
+    liSection.style.display     = "";
+    singleSection.style.display = "none";
+    singleInput.removeAttribute("required");
+  } else {
+    liSection.style.display     = "none";
+    singleSection.style.display = "";
+    singleInput.setAttribute("required", "required");
+  }
+}
+
+// Disable submit button to prevent double-submission
+document.getElementById("req-form").addEventListener("submit", () => {
+  document.querySelectorAll("#req-form button[type='submit']").forEach(btn => {
+    btn.disabled = true;
+    btn.textContent = "Processing...";
+  });
+});
+
+// Init on load
+toggleLineItems();
+
+// ── Auto-detect account titles from uploaded ledger/journal files ─────────
+(function () {
+  const PARSEABLE = [".xlsx", ".xlsm", ".xls", ".csv"];
+  const statusEl = document.getElementById("auto-detect-status");
+
+  function showStatus(msg, color) {
+    statusEl.textContent = msg;
+    statusEl.style.color = color || "var(--muted, #6b7280)";
+    statusEl.style.display = "block";
+  }
+
+  function hideStatus() { statusEl.style.display = "none"; }
+
+  function isParseable(filename) {
+    const lower = (filename || "").toLowerCase();
+    return PARSEABLE.some(ext => lower.endsWith(ext));
+  }
+
+  function clearAutoRows() {
+    document.querySelectorAll(".li-row[data-auto='1']").forEach(r => r.remove());
+    updateTotal();
+  }
+
+  function addAutoLineItem(description, amount, accountId) {
+    const tbody = document.getElementById("line-items-body");
+    const tr = document.createElement("tr");
+    tr.className = "li-row";
+    tr.dataset.auto = "1";
+    tr.innerHTML = `
+      <input type="hidden" name="li_account_id" value="${accountId || 0}">
+      <td>
+        <input type="text" name="li_description" value="${(description || "").replace(/"/g, "&quot;")}"
+               placeholder="e.g. Office supplies…" style="width:100%">
+      </td>
+      <td>
+        <input type="number" name="li_amount" step="0.01" min="0" value="${amount || ""}"
+               placeholder="0.00" class="li-amount" style="width:100%;text-align:right"
+               oninput="updateTotal()">
+      </td>
+      <td>
+        <button type="button" onclick="removeRow(this)"
+                style="background:none;border:none;cursor:pointer;color:var(--danger,#dc2626);font-size:18px;padding:0 4px"
+                title="Remove">×</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+    updateTotal();
+  }
+
+  document.getElementById("req-file-input").addEventListener("change", function () {
+    clearAutoRows();
+    hideStatus();
+
+    const parseableFiles = Array.from(this.files || []).filter(f => isParseable(f.name));
+    if (!parseableFiles.length) return;
+
+    // Use the first parseable file for account detection
+    const file = parseableFiles[0];
+    const fd = new FormData();
+    fd.append("journal_file", file);
+
+    showStatus("⏳ Detecting account titles from " + file.name + "…");
+
+    fetch("/requests/parse-expenses", { method: "POST", body: fd })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { showStatus("⚠ " + data.error, "#b91c1c"); return; }
+        const items = data.items || [];
+        if (!items.length) { showStatus("No expense lines detected in " + file.name + ".", "#6b7280"); return; }
+
+        // Remove the blank first row if it's still empty
+        const firstRow = document.querySelector("#line-items-body .li-row");
+        if (firstRow) {
+          const desc = firstRow.querySelector("input[name='li_description']");
+          const amt  = firstRow.querySelector("input[name='li_amount']");
+          if ((!desc || !desc.value.trim()) && (!amt || !amt.value.trim())) {
+            firstRow.remove();
+          }
+        }
+
+        items.forEach(item => {
+          addAutoLineItem(item.description || item.account_name, item.amount, item.account_id);
+        });
+
+        const detected = items.filter(i => i.source !== "unclassified").length;
+        showStatus(
+          `✓ ${items.length} line item${items.length !== 1 ? "s" : ""} detected` +
+          (detected ? ` · ${detected} account title${detected !== 1 ? "s" : ""} matched` : "") +
+          ". Review and adjust before submitting.",
+          "#059669"
+        );
+      })
+      .catch(() => {
+        showStatus("Could not auto-detect account titles. Please fill in manually.", "#b91c1c");
+      });
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Account Titles & Codes{% endblock %}
+{% block page_heading %}Account Titles & Codes{% endblock %}
+{% block content %}
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+{% if message %}<div class="success">{{ message }}</div>{% endif %}
+
+<div class="card" style="margin-bottom:18px;">
+  <h3>Upload from File</h3>
+  <p class="muted" style="font-size:13px;">
+    ① <strong>Standard COA file</strong> — Excel or CSV with <em>Account Code</em> and <em>Account Title</em> columns.<br>
+    ② <strong>RAC Phil Corp journal export</strong> — upload the JOURNAL XLS directly; codes/titles are auto-extracted.
+  </p>
+  <form method="post" action="/account-titles/upload" enctype="multipart/form-data" style="margin-top:10px;display:flex;gap:10px;align-items:center;">
+    <input type="file" name="file" accept=".xlsx,.xlsm,.xls,.csv" required style="flex:1;">
+    <button type="submit" class="button primary">Upload &amp; Update Accounts</button>
+  </form>
+</div>
+
+{# ── Account table ─────────────────────────────────────────────────────────── #}
+<div class="card">
+  <div class="section-head">
+    <div>
+      <h3>Chart of Accounts
+        <span class="muted" style="font-size:13px;font-weight:400;">
+          {{ accounts|selectattr("is_active")|list|length }} active / {{ accounts|length }} total
+        </span>
+      </h3>
+    </div>
+    <input type="text" id="acct-search" placeholder="Filter accounts…"
+           style="padding:7px 12px;border:1px solid var(--border);border-radius:20px;font-size:13px;width:220px;">
+  </div>
+
+  <table id="acct-table">
+    <thead>
+      <tr>
+        <th>Code</th>
+        <th>Account Title</th>
+        <th>Type</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for a in accounts %}
+    <tr data-search="{{ a.code }} {{ a.name }} {{ a.type }}" style="{% if not a.is_active %}opacity:0.5;{% endif %}">
+      <td><strong>{{ a.code }}</strong></td>
+      <td>{{ a.name }}</td>
+      <td><span class="badge">{{ a.type }}</span></td>
+      <td>{% if a.is_active %}<span class="badge success">Active</span>{% else %}<span class="badge">Inactive</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script nonce="{{ request.state.csp_nonce }}">
+document.getElementById('acct-search').addEventListener('input', function() {
+  const q = this.value.toLowerCase();
+  document.querySelectorAll('#acct-table tbody tr').forEach(function(row) {
+    const text = (row.dataset.search || '').toLowerCase();
+    row.style.display = text.includes(q) ? '' : 'none';
+  });
+});
+</script>
+{% endblock %}

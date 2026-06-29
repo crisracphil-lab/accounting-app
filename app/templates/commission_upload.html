@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Commission Computation{% endblock %}
+{% block page_heading %}Commission Computation{% endblock %}
+{% block content %}
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+  <h2 style="margin:0;">Commission Computation</h2>
+  <a href="/commission/dsp" class="button" style="font-size:.875rem;">
+    🏷 Manage DSP Assignments
+  </a>
+</div>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<div class="card">
+    <h3 style="margin-top:0;">Upload Sub Affiliate raw report</h3>
+    <p>Upload the raw Sub Affiliate report. CSV, XLSX, XLSM, and XLS are accepted. BookPoint detects common headers and computes commission shares.</p>
+    <form method="post" action="/commission" enctype="multipart/form-data" id="commission-form">
+        <div style="display:grid; grid-template-columns:260px 1fr; gap:12px; align-items:start; margin-bottom:16px;">
+
+            <label style="padding-top:8px;">Raw Sub Affiliate file:</label>
+            <input type="file" name="raw_file" accept=".csv,.xlsx,.xlsm,.xls" required>
+
+            <label style="padding-top:8px;">Previous carry-forward:</label>
+            <div>
+                {# ── Saved carries dropdown ── #}
+                {% if saved_carries %}
+                <div style="margin-bottom:8px;">
+                    <label style="font-size:.85rem; font-weight:600; display:block; margin-bottom:4px;">
+                        Use a saved carry-forward from program:
+                    </label>
+                    <select name="previous_carry_id" id="carry-select"
+                            style="width:100%; padding:7px 10px; border:1px solid #d0d5dd; border-radius:6px; font-size:.9rem;">
+                        <option value="">— None (no carry-forward) —</option>
+                        {% for c in saved_carries %}
+                        <option value="{{ c.id }}">
+                            {{ c.label }} &nbsp;·&nbsp; {{ c.created_at[:10] }} &nbsp;·&nbsp; Payable: {{ c.total_payable|money }} &nbsp;·&nbsp; Neg. carry: {{ c.next_negative_carry|money }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <p class="muted" style="margin:3px 0 8px; font-size:.8rem;">
+                        Or upload a different file below (overrides the selection above).
+                    </p>
+                </div>
+                {% endif %}
+                <input type="file" name="previous_file" accept=".xlsx,.xlsm" id="prev-file-input">
+                <p class="muted" style="margin:3px 0 0; font-size:.8rem;">Optional. Upload only if you have a carry file not already saved in the program.</p>
+            </div>
+        </div>
+        <button type="submit">Generate commission computation</button>
+    </form>
+</div>
+<div class="card">
+    <h3 style="margin-top:0;">Computation rules</h3>
+    <table>
+        <thead><tr><th>Share</th><th>Formula</th></tr></thead>
+        <tbody>
+            <tr><td>Shop</td><td>(GGR - Promotion) × 25%; previous negative offset per store (Feb onwards)</td></tr>
+            <tr><td>DSP</td><td>(GGR - Promotion) × 3%; previous negative offset per store (Feb onwards); DSP tag groups stores for summary view only</td></tr>
+            <tr><td>Supervisor</td><td>(GGR - Promotion) × 1%; previous negative offset per store (May onwards)</td></tr>
+            <tr><td>Manager</td><td>(GGR - Promotion) × 1%; previous negative offset per store (May onwards)</td></tr>
+        </tbody>
+    </table>
+</div>
+
+{% if saved_carries %}
+<div class="card">
+    <h3 style="margin-top:0;">Saved carry-forward files</h3>
+    <p class="muted">These files were saved from previous commission runs and can be reused as the carry-forward input for the next cut-off.</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Cut-off label</th>
+                <th>Saved on</th>
+                <th class="num">Rows</th>
+                <th class="num">Total Payable</th>
+                <th class="num">Neg. Carry</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for c in saved_carries %}
+            <tr>
+                <td><strong>{{ c.label }}</strong></td>
+                <td>{{ c.created_at[:16] }}</td>
+                <td class="num">{{ c.rows_count }}</td>
+                <td class="num">{{ c.total_payable|money }}</td>
+                <td class="num">{{ c.next_negative_carry|money }}</td>
+                <td style="display:flex; gap:6px; align-items:center;">
+                    <a href="/commission/carry-file/{{ c.id }}" class="button" style="padding:4px 10px; font-size:.8rem;">Download</a>
+                    <form method="post" action="/commission/carry-file/{{ c.id }}/delete"
+                          onsubmit="return confirm('Delete carry-forward file "{{ c.label }}"? This cannot be undone.')">
+                        <button type="submit" class="button" style="padding:4px 10px; font-size:.8rem; background:#fee2e2; color:#b91c1c; border-color:#fca5a5;">Delete</button>
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<div class="card">
+    <h3 style="margin-top:0;">Historical commission runs</h3>
+    <p class="muted">Use this trail for semi-monthly commission review and carry-forward checking.</p>
+    <table class="history-table">
+        <thead><tr><th>Date</th><th>Raw file</th><th>Previous carry file</th><th class="num">Rows</th><th class="num">Total payable</th><th class="num">Next negative carry</th></tr></thead>
+        <tbody>
+        {% for h in history %}
+            <tr><td>{{ h.created_at }}</td><td>{{ h.filename }}</td><td>{{ h.previous_filename or '-' }}</td><td class="num">{{ h.rows_count }}</td><td class="num">{{ h.total_payable|money }}</td><td class="num">{{ h.next_negative_carry|money }}</td></tr>
+        {% else %}
+            <tr><td colspan="6" class="muted">No commission runs yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

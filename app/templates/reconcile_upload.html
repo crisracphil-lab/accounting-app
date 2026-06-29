@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Reconciliation — GGR{% endblock %}
+{% block content %}
+<h2>GGR Reconciliation</h2>
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<div class="card">
+    <p>Upload your <strong>GGR PER EXCEL.xlsx</strong> (manual workbook with per-outlet detail sheets) and your <strong>GGR PER SYSTEM.xls</strong> subsidiary ledger export. The reconciler will sum each metric (GGR, PAGCOR Share, Audit Fee, Operator, Service Provider) from the Excel detail sheets, apply your sign rules, and compare against the system Dr/Cr totals for the linked account.</p>
+
+    <p><strong>Sign rules used (from your spec):</strong></p>
+    <ul>
+        <li>GGR: positive in Excel → expected on Credit side per system; negative → Debit side.</li>
+        <li>PAGCOR Share / Audit Fee / Operator / Service Provider: positive → Debit; negative → Credit.</li>
+    </ul>
+
+    <form method="post" action="/reconcile/ggr" enctype="multipart/form-data">
+        <div style="display: grid; grid-template-columns: 200px 1fr; gap: 12px; align-items: center; margin-bottom: 16px;">
+            <label>Excel file (.xlsx):</label>
+            <input type="file" name="excel_file" accept=".xlsx,.xlsm" required>
+
+            <label>System file (.xls):</label>
+            <input type="file" name="system_file" accept=".xls" required>
+
+            <label>Period start (YYYY-MM-DD):</label>
+            <input type="text" name="period_start" placeholder="2026-04-01" value="{{ default_start or '' }}">
+
+            <label>Period end (YYYY-MM-DD):</label>
+            <input type="text" name="period_end" placeholder="2026-04-27" value="{{ default_end or '' }}">
+
+            <label>System account code:</label>
+            <input type="text" name="system_account_code" value="{{ default_account or '4111' }}">
+        </div>
+        <button type="submit">Run reconciliation</button>
+    </form>
+</div>
+{% endblock %}

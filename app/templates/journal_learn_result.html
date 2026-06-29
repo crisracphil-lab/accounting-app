@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Learned Journal Entries{% endblock %}
+{% block page_heading %}Learned Journal Entries{% endblock %}
+{% block content %}
+<h2>Learned journal entries — {{ filename }}</h2>
+<p><a href="/upload">← Back to Bank Upload & Payment Register</a></p>
+<div class="card">
+  <div class="section-head"><div><h3>Suggested entry lines</h3><p class="muted">These are generated from the uploaded subsidiary ledger and compared against previously learned ledger patterns. Review before posting.</p></div></div>
+  <table>
+    <thead><tr><th>Account</th><th>Basis</th><th>Historical basis</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Rows</th></tr></thead>
+    <tbody>
+    {% for row in suggestions %}
+      <tr><td><strong>{{ row.code }}</strong> — {{ row.title }}</td><td>{{ row.basis }}</td><td>{{ row.historical_basis }}</td><td class="num">{{ row.debit|money }}</td><td class="num">{{ row.credit|money }}</td><td class="num">{{ row.rows }}</td></tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">No non-zero ledger movements were found.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div class="card">
+  <h3 style="margin-top:0;">Parsed accounts</h3>
+  <table>
+    <thead><tr><th>Code</th><th>Title</th><th class="num">Opening</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Closing</th></tr></thead>
+    <tbody>{% for a in ledger.accounts %}<tr><td>{{ a.code }}</td><td>{{ a.title }}</td><td class="num">{{ a.opening_balance|money }}</td><td class="num">{{ a.period_debit|money }}</td><td class="num">{{ a.period_credit|money }}</td><td class="num">{{ a.closing_balance|money }}</td></tr>{% endfor %}</tbody>
+  </table>
+</div>
+{% endblock %}

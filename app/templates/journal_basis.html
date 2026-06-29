@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}Journal Basis — Historical JE Learning{% endblock %}
+{% block page_heading %}Journal Basis{% endblock %}
+{% block content %}
+
+{% if message %}<div class="success">{{ message }}</div>{% endif %}
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <div class="section-head">
+    <div>
+      <h3>Upload Historical Journal Entries (Basis File)</h3>
+      <p class="muted">Upload your January–April 2026 (or any period) journal entries or subsidiary ledger.
+        The system learns account codes, titles, and split patterns (e.g. Office Supplies + Input VAT).
+        Future bank statement and receipt uploads will use these patterns to automatically generate
+        the correct journal entries — <strong>no more suspense accounts for known transactions</strong>.
+        All generated entries still require your approval before posting.</p>
+    </div>
+  </div>
+
+  <form method="post" action="/journal-basis/upload" enctype="multipart/form-data" style="margin-top:12px;">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+      <div>
+        <label>Company</label>
+        <select name="company_id">
+          {% for co in companies %}
+          <option value="{{ co.id }}">{{ co.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="flex:1;min-width:240px;">
+        <label>Journal entry / subsidiary ledger file (.xlsx, .xlsm, .xls, .csv)</label>
+        <input type="file" name="ledger_file" accept=".xlsx,.xlsm,.xls,.csv" required>
+      </div>
+      <div>
+        <button type="submit" class="btn-primary">Upload &amp; Learn</button>
+      </div>
+    </div>
+  </form>
+
+  <p class="muted" style="margin-top:10px;font-size:0.85em;">
+    Accepted formats: <strong>RAC Phil Corp journal export (.xls)</strong> — automatically detected.
+    Also accepts any file with <strong>Account Code</strong>, <strong>Account Title</strong>, <strong>Debit</strong>, <strong>Credit</strong> columns (.xlsx, .csv).
+    Cash, bank, and e-wallet lines are excluded — expense, VAT, income, withholding, and advance accounts are learned.
+  </p>
+</div>
+
+<!-- Stats per company -->
+<div class="card">
+  <h3 style="margin-top:0;">Learned Patterns by Company</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Company</th>
+        <th class="num">Individual Line Patterns</th>
+        <th class="num">Multi-Account Templates (VAT splits etc.)</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for co in companies %}
+      <tr>
+        <td><strong>{{ co.name }}</strong></td>
+        <td class="num">{{ pattern_counts.get(co.id, 0) }}</td>
+        <td class="num">{{ template_counts.get(co.id, 0) }}</td>
+        <td><a href="/journal-basis/patterns?company_id={{ co.id }}">View patterns →</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Uploaded basis files -->
+{% if basis_files %}
+<div class="card">
+  <h3 style="margin-top:0;">Uploaded Basis Files</h3>
+  <table>
+    <thead>
+      <tr><th>Filename</th><th>Company</th><th>Uploaded</th></tr>
+    </thead>
+    <tbody>
+      {% for f in basis_files %}
+      <tr>
+        <td>{{ f.filename }}</td>
+        <td>{{ f.company_name or f.company_id }}</td>
+        <td class="muted">{{ f.uploaded_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- Learned patterns detail (when viewing /journal-basis/patterns) -->
+{% if entry_templates %}
+<div class="card">
+  <div class="section-head">
+    <div>
+      <h3>Multi-Account Entry Templates for <em>{{ active_company_id }}</em></h3>
+      <p class="muted">These are split-entry patterns learned from historical JEs. When a bank statement transaction matches the keywords, the system automatically generates all the lines below (e.g. Office Supplies + Input VAT + Cash) instead of a single suspense line.</p>
+    </div>
+  </div>
+  {% set prev_key = namespace(v="") %}
+  <table>
+    <thead><tr><th>Pattern Keywords</th><th>Account Code</th><th>Account Title</th><th>Side</th><th class="num">Ratio</th><th class="num">Times Seen</th></tr></thead>
+    <tbody>
+    {% for t in entry_templates %}
+      {% if t.group_key != prev_key.v %}
+        <tr style="background:var(--surface-raised,#f5f7fa);">
+          <td colspan="6" style="font-weight:600;padding-top:10px;">🔑 {{ t.group_key }}</td>
+        </tr>
+        {% set prev_key.v = t.group_key %}
+      {% endif %}
+      <tr>
+        <td></td>
+        <td>{{ t.account_code }}</td>
+        <td>{{ t.account_title }}</td>
+        <td><span class="badge badge-{{ t.normal_side }}">{{ t.normal_side }}</span></td>
+        <td class="num">{{ "%.1f"|format(t.amount_ratio * 100) }}%</td>
+        <td class="num">{{ t.times_seen }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if patterns %}
+<div class="card">
+  <h3 style="margin-top:0;">Individual Line Patterns</h3>
+  <table>
+    <thead><tr><th>Keywords</th><th>Account Code</th><th>Account Title</th><th>Side</th><th class="num">Times Seen</th><th>Sample Description</th></tr></thead>
+    <tbody>
+    {% for p in patterns %}
+    <tr>
+      <td>{{ p.keywords }}</td>
+      <td>{{ p.account_code }}</td>
+      <td>{{ p.account_title }}</td>
+      <td><span class="badge badge-{{ p.normal_side }}">{{ p.normal_side }}</span></td>
+      <td class="num">{{ p.times_seen }}</td>
+      <td class="muted">{{ (p.sample_description or "")[:80] }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="card" style="background:var(--surface-raised,#f5f7fa);">
+  <h3 style="margin-top:0;">How this works</h3>
+  <ol style="margin:0;padding-left:20px;line-height:1.9;">
+    <li>Upload your January–April 2026 journal entries here. Any file with Account Code, Account Title, Debit, and Credit columns is accepted.</li>
+    <li>The system reads every line, groups them by description, and learns which accounts appear together — including Input VAT splits.</li>
+    <li>When you upload a new bank statement under <strong>Bank Upload</strong>, the system matches transaction descriptions to your learned patterns and built-in rules.</li>
+    <li>If a match is found, a journal entry is automatically generated in <strong>Draft</strong> status. Go to <a href="/journal-entries">Journal Entries</a> to review and approve each one before it is posted.</li>
+  </ol>
+
+  <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border,#e0e0e0);">
+    <h4 style="margin:0 0 8px;">Special rules (no receipt upload needed)</h4>
+    <table style="font-size:0.88em;width:100%;">
+      <thead>
+        <tr>
+          <th style="text-align:left;">Transaction type</th>
+          <th style="text-align:left;">Journal entry produced</th>
+          <th style="text-align:left;">Receipt required?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Wallet funding</strong><br><span class="muted">Bank debit containing "GCASH", "MAYA", "PAYMAYA", or "PAYMONGO"</span></td>
+          <td>Dr GCash / Maya E-Wallet<br>Cr Unionbank CIB</td>
+          <td style="color:var(--success,#2e7d32);">No — fund transfer only</td>
+        </tr>
+        <tr>
+          <td><strong>Employee advance</strong><br><span class="muted">Bank debit containing "ADVANCE" (expense-related)</span></td>
+          <td>Dr Advances to Employees<br>Cr Unionbank CIB</td>
+          <td>Only if receipt exists — upload receipt, then<br>create liquidation entry: Dr [Expense] / Cr Advances to Employees.<br>If no receipt is submitted, the advance stays on the books.</td>
+        </tr>
+        <tr>
+          <td><strong>Expense with receipt</strong><br><span class="muted">All other outflows where employee submits receipts</span></td>
+          <td>Dr [Expense Account] + Input VAT<br>Cr Unionbank CIB</td>
+          <td style="color:var(--error,#c62828);">Yes — upload receipt under Invoice Upload</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

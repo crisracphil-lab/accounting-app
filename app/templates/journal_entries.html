@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Journal entries{% endblock %}
+{% block page_heading %}Journal entries{% endblock %}
+{% block content %}
+<h2>Journal entries</h2>
+
+<form method="get" action="/journal-entries" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+  <select name="status">
+    <option value=""         {% if status=="" %}selected{% endif %}>All statuses</option>
+    <option value="draft"    {% if status=="draft" %}selected{% endif %}>Draft</option>
+    <option value="approved" {% if status=="approved" %}selected{% endif %}>Approved</option>
+    <option value="rejected" {% if status=="rejected" %}selected{% endif %}>Rejected</option>
+    <option value="posted"   {% if status=="posted" %}selected{% endif %}>Posted</option>
+  </select>
+  <select name="company_id">
+    <option value="0" {% if active_company_id==0 %}selected{% endif %}>All companies</option>
+    {% for co in companies %}
+    <option value="{{ co.id }}" {% if active_company_id==co.id %}selected{% endif %}>{{ co.name }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Filter</button>
+  {% if status=="draft" %}<span class="muted" style="font-size:0.85em;">Showing draft entries pending your approval</span>{% endif %}
+</form>
+
+<div class="card">
+    <table>
+        <thead>
+            <tr>
+                <th>JE #</th><th>Date</th><th>Company</th><th>Reference</th><th>Description</th>
+                <th class="num">Debit</th><th class="num">Credit</th>
+                <th>Method</th><th>Confidence</th><th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr>
+                <td><a href="/journal-entries/{{ r.id }}">#{{ r.id }}</a></td>
+                <td>{{ r.entry_date }}</td>
+                <td class="muted" style="font-size:0.85em;">{{ r.company_name or "" }}</td>
+                <td>{{ (r.reference or "")[:50] }}</td>
+                <td>{{ (r.description or "")[:60] }}{% if (r.description or "")|length > 60 %}…{% endif %}</td>
+                <td class="num dr">{{ "%.2f"|format(r.total_debit or 0) }}</td>
+                <td class="num cr">{{ "%.2f"|format(r.total_credit or 0) }}</td>
+                <td style="font-size:0.8em;" class="muted">{{ r.classification_method or "" }}</td>
+                <td>
+                  {% set pct = ((r.confidence_score or 0) * 100)|int %}
+                  <span style="color:{% if pct>=80 %}#1a7a3c{% elif pct>=50 %}#b37a00{% else %}#c0392b{% endif %};">{{ pct }}%</span>
+                </td>
+                <td><span class="badge badge-{{ r.status }}">{{ r.status }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="10" class="muted" style="text-align:center;padding:24px;">No journal entries found for the selected filters.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if status == "draft" and rows %}
+<p class="muted" style="font-size:0.85em;">
+  Click any entry to review its lines and approve or reject it. Entries generated from historical journal patterns show the exact accounts learned from your uploaded basis file.
+</p>
+{% endif %}
+
+{% endblock %}

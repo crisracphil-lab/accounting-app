@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}GGR Weekly Summary Result{% endblock %}
+{% block page_heading %}GGR Weekly Summary{% endblock %}
+{% block content %}
+
+<h2>GGR Summary — {{ summary.period_label or summary.source_filename }}</h2>
+<p><a href="/ggr-summary">← Upload another GGR report</a></p>
+
+<div class="card">
+  <div class="section-head">
+    <div>
+      <h3>Monthly Overview</h3>
+      <p class="muted">Source: <strong>{{ summary.source_filename }}</strong> / {{ summary.sheet_name }}
+        &nbsp;·&nbsp; {{ summary.week_subtotals|length }} week(s) &nbsp;·&nbsp; {{ summary.outlet_totals|length }} outlet(s)
+      </p>
+    </div>
+    {% if download_token %}
+    <a class="button primary" href="/ggr-summary/export/{{ download_token }}">
+      Download Excel (original + monthly summary appended)
+    </a>
+    {% endif %}
+  </div>
+
+  <div class="stats">
+    <div class="stat-box">
+      <div class="stat-label">Weeks</div>
+      <div class="stat-value">{{ summary.week_subtotals|length }}</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Outlets</div>
+      <div class="stat-value">{{ summary.outlet_totals|length }}</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Total GGR</div>
+      <div class="stat-value">{{ "{:,.2f}".format(summary.total.ggr|float) }}</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Total PAGCOR Share</div>
+      <div class="stat-value">{{ "{:,.2f}".format(summary.total.pagcor_share|float) }}</div>
+    </div>
+  </div>
+</div>
+
+{# ── Per-outlet Monthly Summary ─────────────────────────────────────── #}
+<div class="card">
+  <h3 style="margin-top:0;">Monthly Summary per Outlet</h3>
+  <p class="muted">Each row is the total for the whole month (all weeks combined), in the same RAC format.
+    This is the section appended to the downloaded Excel file.</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Outlet Name</th>
+        <th>Code</th>
+        <th class="num">LB GGR (F)</th>
+        <th class="num">LB PAGCOR (G)</th>
+        <th class="num">LB Audit (H)</th>
+        <th class="num">Online GGR (N)</th>
+        <th class="num">Online PAGCOR (O)</th>
+        <th class="num">Online Audit (P)</th>
+        <th class="num">Total GGR (Q)</th>
+        <th class="num">Total PAGCOR (R)</th>
+        <th class="num">Total Audit (S)</th>
+        <th class="num">Operator</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for ot in summary.outlet_totals %}
+      {# sums offset: index 3 → offset 0; GGR F=idx8→off5, PAGCOR G=9→6, Audit H=10→7 #}
+      {# Online GGR N=16→13, PAGCOR O=17→14, Audit P=18→15 #}
+      {# Total GGR Q=19→16, PAGCOR R=20→17, Audit S=21→18, Operator=22→19 #}
+      {% set s = ot.sums %}
+      <tr>
+        <td>{{ ot.outlet_name }}</td>
+        <td class="muted">{{ ot.outlet_code }}</td>
+        <td class="num">{{ "{:,.2f}".format((s[5]  if s|length > 5  else 0)|float) }}</td>
+        <td class="num">{{ "{:,.2f}".format((s[6]  if s|length > 6  else 0)|float) }}</td>
+        <td class="num">{{ "{:,.2f}".format((s[7]  if s|length > 7  else 0)|float) }}</td>
+        <td class="num">{{ "{:,.2f}".format((s[13] if s|length > 13 else 0)|float) }}</td>
+        <td class="num">{{ "{:,.2f}".format((s[14] if s|length > 14 else 0)|float) }}</td>
+        <td class="num">{{ "{:,.2f}".format((s[15] if s|length > 15 else 0)|float) }}</td>
+        <td class="num"><strong>{{ "{:,.2f}".format((s[16] if s|length > 16 else 0)|float) }}</strong></td>
+        <td class="num"><strong>{{ "{:,.2f}".format((s[17] if s|length > 17 else 0)|float) }}</strong></td>
+        <td class="num"><strong>{{ "{:,.2f}".format((s[18] if s|length > 18 else 0)|float) }}</strong></td>
+        <td class="num">{{ "{:,.2f}".format((s[19] if s|length > 19 else 0)|float) }}</td>
+      </tr>
+    {% endfor %}
+      <tr style="font-weight:800;background:#e2efda;">
+        <td colspan="2">GRAND TOTAL</td>
+        <td class="num">{{ "{:,.2f}".format(summary.total.ggr|float) }}</td>
+        <td class="num">{{ "{:,.2f}".format(summary.total.pagcor_share|float) }}</td>
+        <td class="num">{{ "{:,.2f}".format(summary.total.audit_fee|float) }}</td>
+        <td class="num">—</td>
+        <td class="num">—</td>
+        <td class="num">—</td>
+        <td class="num">{{ "{:,.2f}".format(summary.total.ggr|float) }}</td>
+        <td class="num">{{ "{:,.2f}".format(summary.total.pagcor_share|float) }}</td>
+        <td class="num">{{ "{:,.2f}".format(summary.total.audit_fee|float) }}</td>
+        <td class="num">{{ "{:,.2f}".format(summary.total.operator|float) }}</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+
+{# ── Weekly Subtotals (reference) ──────────────────────────────────────── #}
+<div class="card">
+  <h3 style="margin-top:0;">Weekly Sub-totals (reference)</h3>
+  <p class="muted">SUB TOTAL rows extracted from the original file — one per WEEK block.</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Week</th>
+        <th>Date Range</th>
+        <th class="num">Total GGR (Q)</th>
+        <th class="num">Total PAGCOR (R)</th>
+        <th class="num">Total Audit (S)</th>
+        <th class="num">Operator</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for wk in summary.week_subtotals %}
+      {% set v = wk.values %}
+      <tr>
+        <td><strong>{{ wk.week_label }}</strong></td>
+        <td class="muted">{{ wk.date_range }}</td>
+        <td class="num">{{ "{:,.2f}".format((v[19] if v|length > 19 else 0)|float) }}</td>
+        <td class="num">{{ "{:,.2f}".format((v[20] if v|length > 20 else 0)|float) }}</td>
+        <td class="num">{{ "{:,.2f}".format((v[21] if v|length > 21 else 0)|float) }}</td>
+        <td class="num">{{ "{:,.2f}".format((v[22] if v|length > 22 else 0)|float) }}</td>
+      </tr>
+    {% endfor %}
+      <tr style="font-weight:800;background:#f0f4f8;">
+        <td colspan="2">GRAND TOTAL</td>
+        <td class="num">{{ "{:,.2f}".format(summary.total.ggr|float) }}</td>
+        <td class="num">{{ "{:,.2f}".format(summary.total.pagcor_share|float) }}</td>
+        <td class="num">{{ "{:,.2f}".format(summary.total.audit_fee|float) }}</td>
+        <td class="num">{{ "{:,.2f}".format(summary.total.operator|float) }}</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="card" style="background:var(--surface-raised,#f5f7fa);">
+  <h3 style="margin-top:0;">What the downloaded Excel contains</h3>
+  <ol style="margin:0;padding-left:20px;line-height:1.9;">
+    <li>All original data rows exactly as in the uploaded file (all {{ summary.raw_rows|length }} rows, all 25 columns).</li>
+    <li>Immediately below: a <strong>SUMMARY</strong> section — one row per outlet showing the whole-month totals in the same 25-column RAC format.</li>
+    <li>A <strong>GRAND TOTAL</strong> row at the bottom summing all outlets.</li>
+  </ol>
+</div>
+
+{% endblock %}

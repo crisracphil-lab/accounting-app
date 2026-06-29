@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}BIR Taxes{% endblock %}
+{% block page_heading %}BIR Taxes{% endblock %}
+{% block content %}
+<h2>BIR Tax Monitoring</h2>
+
+<div class="card">
+    <form method="get" action="/taxes" style="margin-bottom:0;">
+        <label>Due year: <input type="number" name="year" value="{{ year }}" min="2020" max="2035" style="width:90px"></label>
+        <label>Due month:
+            <select name="due_month">
+                {% for i in range(1, 13) %}
+                    <option value="{{ i }}" {% if due_month == i %}selected{% endif %}>{{ i }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <span class="muted">Forms appear in the month they are payable/due. Example: 2550Q Quarter 1 appears in April because it is due April 25.</span>
+        <button type="submit">Refresh</button>
+    </form>
+</div>
+
+<div class="card">
+    <h3 style="margin-top:0;">Payments/forms due this month</h3>
+    {% if summaries %}
+    <table>
+        <thead>
+            <tr>
+                <th>Form</th><th>Frequency</th><th>Accounting period</th><th>Payment/Due date</th>
+                <th class="num">Estimated payment</th><th>Filing status</th><th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for s in summaries %}
+            {% set fr = filings.get((s.form.code, s.year, s.period_index)) %}
+            {% set fstatus = fr.status if fr else "not_started" %}
+            <tr>
+                <td><strong><a href="/taxes/{{ s.form.code }}?year={{ s.year }}&period_index={{ s.period_index }}">{{ s.form.code }}</a></strong><br><span class="muted">{{ s.form.name }}</span></td>
+                <td>{{ s.form.frequency }}</td>
+                <td>{{ s.period_start }} to {{ s.period_end }}</td>
+                <td>
+                    {{ s.due.strftime("%B %d, %Y").replace(" 0", " ") }}
+                    {% if s.form.code == "1702Q" %}
+                    <span class="muted small" style="display:block;font-size:11px">(60 days after Q{{ s.period_index }} close)</span>
+                    {% endif %}
+                    {% if fstatus != "filed" and s.due < today %}<span class="badge badge-unmatched">overdue</span>
+                    {% elif fstatus != "filed" and (s.due - today).days <= 7 %}<span class="badge badge-draft">due soon</span>
+                    {% endif %}
+                </td>
+                <td class="num">{% if s.estimated_filing_amount is not none %}{{ "%.2f"|format(s.estimated_filing_amount) }}{% else %}—{% endif %}</td>
+                <td>
+                    {% if fstatus == "filed" %}
+                        <span class="badge badge-approved">FILED{% if fr.filed_date %} ({{ fr.filed_date }}){% endif %}</span>
+                        {% if fr.reference_number %}<br><span class="muted" style="font-size:11px;">ref: {{ fr.reference_number }}</span>{% endif %}
+                    {% elif fstatus == "in_process" %}
+                        <span class="badge badge-draft">IN PROCESS</span>
+                    {% else %}
+                        <span class="badge badge-unmatched">NOT YET STARTED</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <form method="post" action="/taxes/{{ s.form.code }}/status" style="margin:0; display:inline-flex; gap:4px; flex-wrap:wrap;">
+                        <input type="hidden" name="year" value="{{ s.year }}">
+                        <input type="hidden" name="period_index" value="{{ s.period_index }}">
+                        {% if fstatus != "not_started" %}<button type="submit" name="status" value="not_started" class="secondary" style="padding:3px 8px; font-size:11px;">Reset</button>{% endif %}
+                        {% if fstatus != "in_process" %}<button type="submit" name="status" value="in_process" class="secondary" style="padding:3px 8px; font-size:11px;">In process</button>{% endif %}
+                        {% if fstatus != "filed" %}<button type="submit" name="status" value="filed" style="padding:3px 8px; font-size:11px;">Mark filed</button>{% endif %}
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <p class="muted">No BIR forms are due in the selected month.</p>
+    {% endif %}
+    <p class="muted" style="margin-top:12px;">Amounts are computed from real journal entries only. Reconcile against actual BIR forms before submission.</p>
+</div>
+{% endblock %}

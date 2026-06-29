@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}BookPoint - Bank Reconciliation{% endblock %}
+{% block page_heading %}Bank Reconciliation{% endblock %}
+{% block content %}
+
+<div class="card">
+  <div class="section-head">
+    <div>
+      <h3>Standard Bank Reconciliation</h3>
+      <p class="muted">Upload Per System and Per Bank files. Enter opening balances to produce the standard reconciliation summary with adjusted bank and book balances.</p>
+    </div>
+  </div>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form action="/reconcile/bank-system" method="post" enctype="multipart/form-data" class="form-grid two">
+
+    <div style="grid-column:1/3;"><h4 style="margin:0 0 4px;">Company Details</h4></div>
+    <label>Company name
+      <input type="text" name="company_name" placeholder="e.g. RAC PHIL CORP">
+    </label>
+    <label>Bank account number <span class="muted">(optional)</span>
+      <input type="text" name="bank_account" placeholder="e.g. 000320028458">
+    </label>
+    <label>Statement date
+      <input type="date" name="statement_date">
+    </label>
+    <div></div>
+
+    <div style="grid-column:1/3;margin-top:8px;"><h4 style="margin:0 0 4px;">Opening Balances</h4></div>
+    <label>Balance per bank statement
+      <input type="number" name="bank_balance" value="0" step="0.01" required>
+    </label>
+    <label>Balance per cash book (system)
+      <input type="number" name="book_balance" value="0" step="0.01" required>
+    </label>
+
+    <div style="grid-column:1/3;margin-top:8px;"><h4 style="margin:0 0 4px;">Files</h4></div>
+    <label>Per System file
+      <input type="file" name="system_file" accept=".xlsx,.xlsm,.xls,.csv" required>
+    </label>
+    <label>Per Bank file
+      <input type="file" name="bank_file" accept=".xlsx,.xlsm,.xls,.csv" required>
+    </label>
+    <label>Amount tolerance <span class="muted">(default 0.05)</span>
+      <input type="number" name="tolerance" value="0.05" min="0" step="0.01" style="max-width:140px;">
+    </label>
+    <div></div>
+
+    <div class="form-actions" style="grid-column:1/3;"><button class="button primary" type="submit">Run reconciliation</button></div>
+  </form>
+</div>
+
+{% endblock %}

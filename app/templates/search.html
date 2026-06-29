@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Search — {{ q }}{% endblock %}
+{% block page_heading %}Search results{% endblock %}
+{% block content %}
+
+<form method="get" action="/search" style="margin-bottom:20px;">
+  <div style="display:flex;gap:8px;max-width:600px;">
+    <input type="search" name="q" value="{{ q }}" placeholder="Search transactions, suppliers, accounts, journal entries…"
+           autofocus
+           style="flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
+    <button type="submit" class="button primary">Search</button>
+  </div>
+</form>
+
+{% if q %}
+  {% if total == 0 %}
+  <div class="card" style="text-align:center;padding:40px;">
+    <div style="font-size:32px;margin-bottom:10px;">🔍</div>
+    <p class="muted">No results found for <strong>"{{ q }}"</strong></p>
+    <p class="muted" style="font-size:13px;">Try a different keyword or check your spelling.</p>
+  </div>
+  {% else %}
+  <p class="muted" style="margin-bottom:14px;font-size:13px;">
+    Found <strong>{{ total }}</strong> result{{ 's' if total != 1 }} for "<strong>{{ q }}</strong>"
+  </p>
+
+  {# ── Transactions ── #}
+  {% if results.transactions %}
+  <div class="card" style="margin-bottom:14px;">
+    <h3 style="margin-bottom:12px;">
+      <span class="nav-icon" style="font-size:12px;margin-right:6px;">TX</span>
+      Bank Transactions
+      <span class="muted" style="font-size:13px;font-weight:400;">{{ results.transactions|length }}</span>
+    </h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Date</th><th>Description</th><th class="num">Debit</th><th class="num">Credit</th><th style="width:80px;"></th></tr></thead>
+        <tbody>
+        {% for tx in results.transactions %}
+        <tr>
+          <td class="muted small">{{ tx.transaction_date }}</td>
+          <td>{{ tx.description }}</td>
+          <td class="num">{% if tx.debit_amount and tx.debit_amount != '0' %}{{ "{:,.2f}".format(tx.debit_amount|float) }}{% else %}—{% endif %}</td>
+          <td class="num">{% if tx.credit_amount and tx.credit_amount != '0' %}{{ "{:,.2f}".format(tx.credit_amount|float) }}{% else %}—{% endif %}</td>
+          <td><a href="/transactions/{{ tx.id }}" class="button" style="padding:3px 10px;font-size:12px;">View</a></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:8px;"><a href="/transactions?q={{ q }}" style="font-size:12px;">View all in Transactions →</a></div>
+  </div>
+  {% endif %}
+
+  {# ── Suppliers ── #}
+  {% if results.suppliers %}
+  <div class="card" style="margin-bottom:14px;">
+    <h3 style="margin-bottom:12px;">
+      <span class="nav-icon" style="font-size:12px;margin-right:6px;">SP</span>
+      Suppliers
+      <span class="muted" style="font-size:13px;font-weight:400;">{{ results.suppliers|length }}</span>
+    </h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Supplier</th><th>TIN</th><th>Status</th><th style="width:80px;"></th></tr></thead>
+        <tbody>
+        {% for s in results.suppliers %}
+        <tr style="{% if not s.is_active %}opacity:0.55;{% endif %}">
+          <td><strong>{{ s.name }}</strong></td>
+          <td class="muted small">{{ s.tin or '—' }}</td>
+          <td>{% if s.is_active %}<span class="badge success">Active</span>{% else %}<span class="badge">Inactive</span>{% endif %}</td>
+          <td><a href="/suppliers" class="button" style="padding:3px 10px;font-size:12px;">View</a></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Journal Entries ── #}
+  {% if results.journal_entries %}
+  <div class="card" style="margin-bottom:14px;">
+    <h3 style="margin-bottom:12px;">
+      <span class="nav-icon" style="font-size:12px;margin-right:6px;">JE</span>
+      Journal Entries
+      <span class="muted" style="font-size:13px;font-weight:400;">{{ results.journal_entries|length }}</span>
+    </h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Date</th><th>Reference</th><th>Description</th><th>Status</th><th style="width:80px;"></th></tr></thead>
+        <tbody>
+        {% for je in results.journal_entries %}
+        <tr>
+          <td class="muted small">{{ je.entry_date }}</td>
+          <td><strong>{{ je.reference or '—' }}</strong></td>
+          <td>{{ je.description or '—' }}</td>
+          <td><span class="badge {% if je.status == 'approved' %}success{% elif je.status == 'draft' %}warning{% else %}{% endif %}">{{ je.status }}</span></td>
+          <td><a href="/journal-entries/{{ je.id }}" class="button" style="padding:3px 10px;font-size:12px;">View</a></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Accounts ── #}
+  {% if results.accounts %}
+  <div class="card" style="margin-bottom:14px;">
+    <h3 style="margin-bottom:12px;">
+      <span class="nav-icon" style="font-size:12px;margin-right:6px;">CO</span>
+      Chart of Accounts
+      <span class="muted" style="font-size:13px;font-weight:400;">{{ results.accounts|length }}</span>
+    </h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Code</th><th>Account Title</th><th>Type</th><th>Status</th></tr></thead>
+        <tbody>
+        {% for a in results.accounts %}
+        <tr style="{% if not a.is_active %}opacity:0.55;{% endif %}">
+          <td><strong>{{ a.code }}</strong></td>
+          <td>{{ a.name }}</td>
+          <td><span class="badge">{{ a.type }}</span></td>
+          <td>{% if a.is_active %}<span class="badge success">Active</span>{% else %}<span class="badge">Inactive</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% endif %}
+{% else %}
+<div class="card" style="text-align:center;padding:40px;">
+  <div style="font-size:40px;margin-bottom:10px;">🔍</div>
+  <p class="muted">Type something in the search box above to get started.</p>
+  <p class="muted" style="font-size:13px;">You can search across transactions, suppliers, journal entries, and accounts.</p>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Detailed GGR Reconciliation{% endblock %}
+{% block content %}
+<h2>Detailed GGR Reconciliation</h2>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<div class="card">
+    <h3 style="margin-top:0;">Upload separate source files</h3>
+    <p>Upload the <strong>Raw / PER GGR</strong> file and the separate <strong>Per System</strong> file. BookPoint will normalize both files, match each GGR row by week/account type/amount, and produce the detailed reconciliation report.</p>
+    <form method="post" action="/reconcile/ggr/detailed" enctype="multipart/form-data">
+        <div style="display:grid; grid-template-columns:220px 1fr; gap:12px; align-items:center; margin-bottom:16px;">
+            <label>Raw / PER GGR file:</label>
+            <input type="file" name="raw_ggr_file" accept=".xls,.xlsx,.xlsm,.csv">
+            <label>Per System file:</label>
+            <input type="file" name="per_system_file" accept=".xls,.xlsx,.xlsm,.csv">
+            <label>System account code:</label>
+            <input type="text" name="account_code" value="4111">
+        </div>
+        <button type="submit">Run detailed reconciliation</button>
+    </form>
+</div>
+<div class="card">
+    <h3 style="margin-top:0;">Legacy combined file</h3>
+    <p>If you still have the old combined workbook with both <code>PER SYSTEM</code> and <code>PER GGR</code> sheets, upload it here.</p>
+    <form method="post" action="/reconcile/ggr/detailed" enctype="multipart/form-data">
+        <div style="display:grid; grid-template-columns:220px 1fr; gap:12px; align-items:center; margin-bottom:16px;">
+            <label>Combined file (.xls):</label>
+            <input type="file" name="combined_file" accept=".xls">
+            <label>System account code:</label>
+            <input type="text" name="account_code" value="4111">
+        </div>
+        <button type="submit">Run legacy combined reconciliation</button>
+    </form>
+</div>
+<div class="card">
+    <h3 style="margin-top:0;">How matching works</h3>
+    <p>The detailed engine compares every Raw/PER GGR row against Per System entries by week, expected debit/credit side, and amount tolerance. It does not create dummy rows or fallback data; missing or invalid columns raise errors for review.</p>
+</div>
+{% endblock %}

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}FS #{{ upload.id }}{% endblock %}
+{% block content %}
+<h2>{{ upload.company_name or "Financial Statement" }} — {{ upload.period_label }}</h2>
+<p><a href="/fs">← back to FS list</a> &nbsp;|&nbsp;
+   <a href="/fs/{{ upload.id }}/export"><button class="secondary">Download as .xlsx (with your edits)</button></a>
+</p>
+
+{% for sheet, rows, headers in [("IS", is_rows, is_columns), ("BS", bs_rows, bs_columns)] %}
+{% if rows %}
+<div class="card">
+    <h3 style="margin-top:0;">{{ "Income Statement" if sheet == "IS" else "Balance Sheet" }} ({{ rows|length }} rows)</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>A/C No.</th><th>Acct Title</th>
+                {% for h in headers[2:-2] %}<th class="num">{{ h }}</th>{% endfor %}
+                {% if headers|length >= 2 %}<th class="num">{{ headers[-2] }}</th>{% endif %}
+                <th style="width:35%;">Reasons/Remarks</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}
+            {% set cols = r.columns %}
+            <tr {% if r.remarks %}style="background:#f7faff;"{% endif %}>
+                <td><span class="muted">{{ r.account_code or "" }}</span></td>
+                <td><strong>{{ r.account_title }}</strong></td>
+                {% for h in headers[2:-2] %}
+                    <td class="num">{% if cols.get(h) %}{{ "%.2f"|format(cols.get(h)|float) if cols.get(h)|string|replace(".","",1)|replace("-","",1)|replace(",","")|replace(" ","")|length and cols.get(h)|string|replace(".","",1)|replace("-","",1)|replace(",","")|replace(" ","")|first|default("X") in "0123456789" else cols.get(h) }}{% endif %}</td>
+                {% endfor %}
+                {% if headers|length >= 2 %}
+                <td class="num">{% if r.inc_dec %}{{ "%.2f"|format(r.inc_dec|float) }}{% endif %}</td>
+                {% endif %}
+                <td>
+                    <form method="post" action="/fs/row/{{ r.id }}/remarks" style="margin:0;">
+                        <textarea name="remarks" rows="2" style="width:100%;">{{ r.remarks or "" }}</textarea>
+                        <button type="submit" style="font-size:11px; padding:3px 8px; margin-top:2px;">Save</button>
+                        {% if r.edited_at %}<span class="muted" style="font-size:11px;">edited {{ r.edited_at }}</span>{% endif %}
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endfor %}
+{% endblock %}

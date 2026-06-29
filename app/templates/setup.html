@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Initial Setup - BookPoint{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card brand-auth">
+    <div class="auth-brand-mark">BP</div>
+    <h2>Create first admin user</h2>
+    <p class="muted">No users exist yet. Create your admin account now. The app has no default username or password.</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post" action="/setup" class="stacked auth-form">
+      <label>Full name</label>
+      <input type="text" name="full_name" autocomplete="name">
+      <label>Username</label>
+      <input type="text" name="username" autocomplete="username" required autofocus>
+      <label>Password</label>
+      <input type="password" name="password" autocomplete="new-password" minlength="8" required>
+      <p class="muted small">Use your own password. Minimum 8 characters.</p>
+      <label>Confirm password</label>
+      <input type="password" name="confirm_password" autocomplete="new-password" minlength="8" required>
+      <button type="submit">Create admin</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

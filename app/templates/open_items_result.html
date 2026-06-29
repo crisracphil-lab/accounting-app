@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Open Items #{{ run.id }}{% endblock %}
+{% block page_heading %}Open Items #{{ run.id }}{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="section-head">
+    <div><h3>{{ run.account_filter }} — {{ run.filename }}</h3><p class="muted">Opening side: {{ run.open_side }} · {{ run.created_at }}</p></div>
+    <div><a class="button ghost" href="/open-items">New analysis</a> <a class="button primary" href="/open-items/{{ run.id }}/export">Export Excel</a></div>
+  </div>
+  <div class="segmented"><a href="/open-items/{{ run.id }}" class="{% if not status %}active{% endif %}">All</a>{% for c in counts %}<a href="/open-items/{{ run.id }}?status={{ c.status }}" class="{% if status==c.status %}active{% endif %}">{{ c.status }} ({{ c.n }})</a>{% endfor %}</div>
+</div>
+
+<div class="card">
+  <div class="section-head"><h3>Open / closed detail</h3></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Status</th><th>Date</th><th>Account</th><th>Reference</th><th>Description</th><th class="num">Original</th><th class="num">Closed</th><th class="num">Open Balance</th><th class="num">Aging</th></tr></thead>
+      <tbody>{% for d in details %}<tr>
+        <td><span class="badge badge-{{ d.status }}">{{ d.status }}</span></td>
+        <td>{{ d.open_date }}</td>
+        <td><strong>{{ d.account_code or '' }}</strong><br><span class="muted">{{ d.account_title or '' }}</span></td>
+        <td>{{ d.reference or '-' }}</td>
+        <td>{{ d.description }}</td>
+        <td class="num">{{ d.original_amount|money }}</td>
+        <td class="num">{{ d.closed_amount|money }}</td>
+        <td class="num">{{ d.open_balance|money }}</td>
+        <td class="num">{{ d.aging_days }}</td>
+      </tr>{% else %}<tr><td colspan="9" class="muted">No rows for this filter.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="section-head"><h3>Closure matches</h3></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Open date</th><th>Open ref</th><th>Close date</th><th>Close ref</th><th class="num">Amount closed</th><th>Close description</th></tr></thead>
+      <tbody>{% for c in closures %}<tr><td>{{ c.open_date }}</td><td>{{ c.open_reference or '-' }}</td><td>{{ c.close_date }}</td><td>{{ c.close_reference or '-' }}</td><td class="num">{{ c.amount|money }}</td><td>{{ c.close_description }}</td></tr>{% else %}<tr><td colspan="6" class="muted">No closure matches detected.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

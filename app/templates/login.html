@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Sign in - BookPoint{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card brand-auth">
+    <div class="auth-brand-mark">BP</div>
+    <h2>Welcome to BookPoint</h2>
+    <p class="muted">Access your accounting and financial operations workspace.</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post" action="/login" class="stacked auth-form" autocomplete="off">
+      <input type="hidden" name="next" value="{{ next }}">
+      <label>Username</label>
+      <input type="text" name="username" autocomplete="off" required autofocus>
+      <label>Password</label>
+      <input type="password" name="password" autocomplete="new-password" required>
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

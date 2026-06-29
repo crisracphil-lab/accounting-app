@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Invoice #{{ invoice.id }}{% endblock %}
+{% block page_heading %}Invoice #{{ invoice.id }}{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="section-head"><div><h3>{{ invoice.invoice_number or 'Invoice detail' }}</h3><p class="muted">{{ invoice.supplier_name }} · {{ invoice.source_filename }}</p></div><span class="badge badge-{{ invoice.status }}">{{ invoice.status.replace('_',' ') }}</span></div>
+  <div class="detail-grid"><div><strong>Date</strong><br>{{ invoice.invoice_date or '-' }}</div><div><strong>Due date</strong><br>{{ invoice.due_date or '-' }}</div><div><strong>Gross</strong><br>{{ invoice.gross_amount|money }}</div><div><strong>VAT</strong><br>{{ invoice.vat_amount|money }}</div><div><strong>EWT</strong><br>{{ invoice.ewt_amount|money }}</div><div><strong>Net</strong><br>{{ invoice.net_amount|money }}</div></div>
+  <p>{{ invoice.description or '' }}</p>
+</div>
+<div class="card"><div class="section-head"><h3>Matching history</h3></div><div class="table-wrap"><table><thead><tr><th>Type</th><th>Bank/payment</th><th class="num">Difference</th><th>Score</th><th>Reason</th></tr></thead><tbody>{% for m in matches %}<tr><td>{{ m.match_type.replace('_',' ') }}</td><td>{{ m.bank_description or m.beneficiary_name or '-' }}</td><td class="num">{{ m.amount_difference|money }}</td><td>{{ '%.2f'|format(m.score) }}</td><td>{{ m.reason }}</td></tr>{% else %}<tr><td colspan="5" class="muted">No matches yet.</td></tr>{% endfor %}</tbody></table></div></div>
+{% if je %}<div class="card"><div class="section-head"><h3>Draft journal entry</h3><a class="button ghost" href="/journal-entries/{{ je.id }}">Open JE</a></div><div class="table-wrap"><table><thead><tr><th>Account</th><th>Description</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead><tbody>{% for l in lines %}<tr><td>{{ l.account_code }} - {{ l.account_name }}</td><td>{{ l.description }}</td><td class="num">{{ l.debit|money }}</td><td class="num">{{ l.credit|money }}</td></tr>{% endfor %}</tbody></table></div></div>{% endif %}
+{% endblock %}

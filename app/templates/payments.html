@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Payments register{% endblock %}
+{% block content %}
+<h2>Payments register</h2>
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+{% if upload_result %}
+<div class="success">
+    <strong>{{ upload_result.filename }}</strong> ingested:
+    {{ upload_result.rows_inserted }} payment instructions inserted
+    ({{ upload_result.rows_skipped_duplicate }} duplicates skipped, {{ upload_result.rows_total }} parsed total).
+</div>
+{% endif %}
+
+<div class="card">
+    <h3 style="margin-top:0;">Upload payments register</h3>
+    <p>Upload your outgoing payments register .xlsx. Ingested payments can then be turned into draft journal entries for review.</p>
+    <form method="post" action="/payments/upload" enctype="multipart/form-data">
+        <input type="file" name="file" accept=".xlsx,.xlsm" required>
+        <button type="submit">Upload and ingest</button>
+    </form>
+</div>
+
+<div class="card">
+    <form method="get" action="/payments" style="margin-bottom: 8px;">
+        <input type="text" name="q" value="{{ q }}" placeholder="search beneficiary / remarks">
+        <select name="status">
+            <option value="">All statuses</option>
+            {% for s in all_statuses %}
+                <option value="{{ s }}" {% if status==s %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+        </select>
+        <select name="remittance_type">
+            <option value="">All types</option>
+            {% for t in all_types %}
+                <option value="{{ t }}" {% if remittance_type==t %}selected{% endif %}>{{ t }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit">Filter</button>
+        <a href="/payments" class="muted">reset</a>
+    </form>
+    <form method="post" action="/payments/generate-jes-all" style="margin-bottom: 12px;">
+        <button type="submit" class="secondary">Generate JEs for all eligible payments (Successful + Released)</button>
+    </form>
+    <p class="muted">{{ rows|length }} payment instructions ({{ "%.2f"|format(total_amount) }} PHP)</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th><th>Tran ID</th><th>Type</th><th>Status</th>
+                <th>Beneficiary</th><th class="num">Amount</th><th>Remarks</th>
+                <th>JE</th><th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for r in rows %}
+            <tr>
+                <td>{{ r.transaction_date or "" }}</td>
+                <td>{{ r.tran_id }}</td>
+                <td>{{ r.remittance_type or "" }}</td>
+                <td>
+                    {% if r.transaction_status == "Transaction Successful" %}<span class="badge badge-approved">Successful</span>
+                    {% elif r.transaction_status == "Transaction Released" %}<span class="badge badge-generated">Released</span>
+                    {% elif r.transaction_status == "Scheduled" %}<span class="badge badge-draft">Scheduled</span>
+                    {% elif r.transaction_status in ("Transaction Failed","Rejected","Cancelled") %}<span class="badge badge-unmatched">{{ r.transaction_status }}</span>
+                    {% else %}{{ r.transaction_status }}{% endif %}
+                </td>
+                <td>{{ r.beneficiary_name or "" }}</td>
+                <td class="num">{{ "%.2f"|format(r.amount|float) }}</td>
+                <td><span class="muted">{{ (r.remarks or "")[:60] }}</span></td>
+                <td>
+                    {% if r.journal_entry_id %}<a href="/journal-entries/{{ r.journal_entry_id }}">#{{ r.journal_entry_id }}</a>
+                    {% else %}<span class="muted">-</span>{% endif %}
+                </td>
+                <td>
+                    {% if not r.journal_entry_id and r.transaction_status in ("Transaction Successful","Transaction Released") %}
+                    <form method="post" action="/payments/{{ r.id }}/generate-je" style="margin:0;">
+                        <button type="submit">Generate JE</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

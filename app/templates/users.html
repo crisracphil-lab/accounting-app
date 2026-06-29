@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}User Management
+<script nonce="{{ request.state.csp_nonce }}">
+(function () {
+  function filterDepartments(form) {
+    const company = form.querySelector('select[name="company_id"]');
+    const department = form.querySelector('select[name="department_id"]');
+    if (!company || !department) return;
+    const companyId = company.value || '1';
+    let selectedStillVisible = department.value === '0' || department.value === '';
+    Array.from(department.options).forEach(function (option) {
+      const optionCompany = option.getAttribute('data-company-id');
+      const show = !optionCompany || optionCompany === companyId || option.value === '0';
+      option.hidden = !show;
+      option.disabled = !show;
+      if (show && option.selected) selectedStillVisible = true;
+    });
+    if (!selectedStillVisible) department.value = '0';
+  }
+  document.querySelectorAll('form').forEach(function (form) {
+    const company = form.querySelector('select[name="company_id"]');
+    if (!company) return;
+    filterDepartments(form);
+    company.addEventListener('change', function () { filterDepartments(form); });
+  });
+})();
+</script>
+{% endblock %}
+{% block content %}
+<h1>User Management</h1>
+<p class="muted">Admin-only staff access control. Create one account per accounting staff member; do not share passwords.</p>
+
+{% if message %}<div class="success">{{ message }}</div>{% endif %}
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+{% if tmp_password %}
+<div id="tmp-pwd-box" style="display:flex;align-items:flex-start;gap:10px;background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;padding:14px 16px;margin-bottom:16px;">
+  <span style="font-size:20px;flex-shrink:0;">🔑</span>
+  <div style="flex:1;font-size:13px;">
+    <strong>Temporary password for {{ tmp_username }}:</strong>
+    <code id="tmp-pwd-text" style="background:#dbeafe;padding:3px 8px;border-radius:4px;font-size:14px;letter-spacing:.05em;user-select:all;">{{ tmp_password }}</code>
+    <button onclick="navigator.clipboard.writeText('{{ tmp_password }}').then(function(){this.textContent='Copied!';setTimeout(function(){document.getElementById('tmp-pwd-btn').textContent='Copy';},1500);}.bind(this))"
+            id="tmp-pwd-btn"
+            style="margin-left:8px;padding:2px 10px;font-size:12px;border:1px solid #93c5fd;border-radius:4px;background:#fff;cursor:pointer;">
+      Copy
+    </button>
+    <span style="display:block;margin-top:4px;color:#1e40af;">Copy it now — it will not be shown again.</span>
+  </div>
+  <button onclick="document.getElementById('tmp-pwd-box').remove()"
+          title="Dismiss"
+          style="background:none;border:none;font-size:18px;cursor:pointer;color:#6b7280;flex-shrink:0;line-height:1;">×</button>
+</div>
+{% endif %}
+
+<div class="grid two-col">
+  <section class="card">
+    <h2>Add staff user</h2>
+    <form method="post" action="/users/create" class="stacked">
+      <label>Username</label>
+      <input type="text" name="username" autocomplete="off" required>
+      <label>Full name</label>
+      <input type="text" name="full_name" autocomplete="off">
+      <label>Email for notifications</label>
+      <input type="email" name="email" autocomplete="off">
+      <label>Company</label>
+      <select name="company_id">{% for c in companies %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select>
+      <label>Department</label>
+      <select name="department_id"><option value="0">No department</option>{% for d in departments %}<option value="{{ d.id }}" data-company-id="{{ d.company_id or 1 }}">{{ d.name }}</option>{% endfor %}</select>
+      <label><input type="checkbox" name="is_operations_manager" value="1"> General Manager approver</label>
+      <label><input type="checkbox" name="notify_operations_approvals" value="1" checked> Notify for General Manager approvals</label>
+      <label>Role</label>
+      <select name="role">
+        {% for role in roles %}<option value="{{ role }}">{{ role|capitalize }}</option>{% endfor %}
+      </select>
+      <label>Temporary password</label>
+      <input type="password" name="password" minlength="6" autocomplete="new-password" required>
+      <label>Confirm temporary password</label>
+      <input type="password" name="confirm_password" minlength="6" autocomplete="new-password" required>
+      <p class="muted small" style="margin:2px 0 6px;">Temporary passwords must be at least 6 characters. The user will be prompted to set a strong password on their first login.</p>
+      <button type="submit">Create user</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Role guide</h2>
+    <table>
+      <tr><th>Role</th><th>Suggested use</th></tr>
+      <tr><td><span class="badge danger">Admin</span></td><td>Manage users, settings, and sensitive accounting actions.</td></tr>
+      <tr><td><span class="badge info">Accountant</span></td><td>Upload files, prepare entries, reconcile, and review accounting work.</td></tr>
+      <tr><td><span class="badge">Viewer</span></td><td>Read-only/report viewing workflow. Additional route-level restrictions can be added later.</td></tr>
+      <tr><td><span class="badge warning">General Manager</span></td><td>Enable the General Manager approver checkbox on a user to approve or reject reimbursements above PHP 50,000.</td></tr>
+    </table>
+    <p class="muted small">Current protection requires login for accounting pages. This page is admin-only.</p>
+  </section>
+</div>
+
+<section class="card">
+  <div class="section-head"><div><h2>Email notification settings</h2><p class="muted">Use this in the actual application. Admins can update SMTP settings here without editing code or files.</p></div></div>
+  <form method="post" action="/users/email-settings" class="stacked">
+    <div class="settings-grid">
+      <div><label>SMTP host</label><input type="text" name="smtp_host" value="{{ email_settings.get('smtp_host','') }}" placeholder="smtp.gmail.com"></div>
+      <div><label>SMTP port</label><input type="text" name="smtp_port" value="{{ email_settings.get('smtp_port','587') }}"></div>
+      <div><label>SMTP username/email</label><input type="text" name="smtp_user" value="{{ email_settings.get('smtp_user','') }}"></div>
+      <div><label>Sender email</label><input type="email" name="smtp_from" value="{{ email_settings.get('smtp_from','') }}"></div>
+      <div><label>Password / app password</label><input type="password" name="smtp_password" placeholder="Leave blank to keep saved password"></div>
+      <div><label>&nbsp;</label><label><input type="checkbox" name="smtp_tls" value="1" {% if email_settings.get('smtp_tls','1') != '0' %}checked{% endif %}> Use TLS</label></div>
+    </div>
+    <button type="submit">Save email settings</button>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Existing users</h2>
+  <table>
+    <tr>
+      <th>User</th><th>Email</th><th>Role</th><th>GM approver</th><th>2FA</th><th>Status</th><th>Created</th><th>Last login</th><th>Actions</th>
+    </tr>
+    {% for u in users %}
+    <tr>
+      <td>
+        <strong>{{ u["username"] }}</strong><br>
+        <span class="muted">{{ u["full_name"] or "" }}</span>
+      </td>
+      <td>{{ u["email"] or "-" }}</td>
+      <td><span class="badge">{{ u["role"] }}</span></td>
+      <td>{% if u["is_operations_manager"] %}<span class="badge warning">Yes</span>{% else %}-{% endif %}</td>
+      <td>{% if u["totp_enabled"] %}<span class="badge success" title="TOTP two-factor authentication enabled">✓ On</span>{% else %}<span class="muted">-</span>{% endif %}</td>
+      <td>
+        {% if u["is_active"] %}<span class="badge success">Active</span>{% else %}<span class="badge danger">Inactive</span>{% endif %}
+        {% if u["locked_until"] %}<br><span class="badge warning" title="Locked until {{ u['locked_until'] }}">🔒 Locked</span>{% endif %}
+        {% if u["failed_login_attempts"] > 0 and not u["locked_until"] %}<br><span class="muted" style="font-size:11px;">{{ u["failed_login_attempts"] }} failed attempt(s)</span>{% endif %}
+      </td>
+      <td>{{ u["created_at"] or "" }}</td>
+      <td>{{ u["last_login_at"] or "Never" }}</td>
+      <td class="user-actions">
+        <details>
+          <summary>Edit</summary>
+          <form method="post" action="/users/{{ u['id'] }}/update" class="inline-card-form">
+            <label>Full name</label>
+            <input type="text" name="full_name" value="{{ u['full_name'] or '' }}">
+            <label>Email</label>
+            <input type="email" name="email" value="{{ u['email'] or '' }}">
+            <label>Company</label>
+            <select name="company_id">{% for c in companies %}<option value="{{ c.id }}" {% if c.id == u['company_id'] %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
+            <label>Department</label>
+            <select name="department_id"><option value="0">No department</option>{% for d in departments %}<option value="{{ d.id }}" data-company-id="{{ d.company_id or 1 }}" {% if d.id == u['department_id'] %}selected{% endif %}>{{ d.name }}</option>{% endfor %}</select>
+            <label><input type="checkbox" name="is_operations_manager" value="1" {% if u['is_operations_manager'] %}checked{% endif %}> General Manager approver</label>
+            <label><input type="checkbox" name="notify_operations_approvals" value="1" {% if u['notify_operations_approvals'] %}checked{% endif %}> Notify for General Manager approvals</label>
+            <label>Role</label>
+            <select name="role">
+              {% for role in roles %}<option value="{{ role }}" {% if role == u["role"] %}selected{% endif %}>{{ role|capitalize }}</option>{% endfor %}
+            </select>
+            <label>Status</label>
+            <select name="is_active">
+              <option value="1" {% if u["is_active"] %}selected{% endif %}>Active</option>
+              <option value="0" {% if not u["is_active"] %}selected{% endif %}>Inactive</option>
+            </select>
+            <button type="submit">Save</button>
+          </form>
+        </details>
+        <details>
+          <summary>Reset password</summary>
+          <form method="post" action="/users/{{ u['id'] }}/reset-password" class="inline-card-form"
+                onsubmit="return confirm('Generate a new temporary password for {{ u["username"] }}? The current password will be invalidated immediately.')">
+            <p class="muted" style="font-size:12px;margin:4px 0 8px;">
+              A secure temporary password will be generated automatically.
+              The user must change it on their next login.
+            </p>
+            <button type="submit">Generate &amp; reset password</button>
+          </form>
+        </details>
+        {% if u["locked_until"] %}
+        <details>
+          <summary>🔓 Unlock</summary>
+          <form method="post" action="/users/{{ u['id'] }}/unlock" class="inline-card-form">
+            <p class="muted">This account is locked due to too many failed login attempts. Click below to unlock it immediately.</p>
+            <button type="submit">Unlock account</button>
+          </form>
+        </details>
+        {% endif %}
+        <details>
+          <summary>Force logout</summary>
+          <form method="post" action="/users/{{ u['id'] }}/force-logout" class="inline-card-form"
+                data-confirm-logout="{{ u['username'] | e }}">
+            <p class="muted" style="font-size:12px;margin:4px 0 8px;">
+              Immediately invalidates every active session token for this user.
+              Their account and password are not affected.
+            </p>
+            <button type="submit">Force sign out</button>
+          </form>
+        </details>
+        <details>
+          <summary>Delete</summary>
+          <form method="post" action="/users/{{ u['id'] }}/delete" class="inline-card-form danger-zone" data-confirm-delete-user>
+            <p class="muted" style="font-size:12px;margin:4px 0 8px;">This will deactivate the account immediately. The user will not be able to log in.</p>
+            <button type="submit" class="danger">Delete user</button>
+          </form>
+        </details>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</section>
+
+<script nonce="{{ request.state.csp_nonce }}">
+document.addEventListener('click', function(ev) {
+    var btn = ev.target;
+    if (btn.type !== 'submit') return;
+    var form = btn.closest('form');
+    if (!form) return;
+    if (form.dataset.confirmLogout !== undefined) {
+        var name = form.dataset.confirmLogout;
+        if (!confirm('Sign out all active sessions for ' + name + '?\nThey will need to log in again. Password is not changed.')) {
+            ev.preventDefault();
+        }
+    }
+    if (form.hasAttribute('data-confirm-delete-user')) {
+        if (!confirm('Delete this user? The account will be deactivated and the username will be renamed. This cannot be undone.')) {
+            ev.preventDefault();
+        }
+    }
+});
+</script>
+{% endblock %}

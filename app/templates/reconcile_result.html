@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Reconciliation result{% endblock %}
+{% block content %}
+<h2>Reconciliation result — {{ result.template_name }}</h2>
+
+<div class="card">
+    <p><strong>Excel:</strong> {{ result.excel_filename }}<br>
+       <strong>System:</strong> {{ result.system_filename }}<br>
+       <strong>Period:</strong> {{ result.period_start }} → {{ result.period_end }}<br>
+       <strong>Status:</strong>
+       {% if result.all_within_tolerance %}
+            <span class="badge badge-approved">all within tolerance</span>
+       {% else %}
+            <span class="badge badge-unmatched">variance detected</span>
+       {% endif %}
+    </p>
+</div>
+
+<div class="card">
+    <h3 style="margin-top:0;">Per-metric breakdown</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Metric</th>
+                <th>Sign rule</th>
+                <th class="num">Excel +</th>
+                <th class="num">Excel −</th>
+                <th class="num">Expected Dr</th>
+                <th class="num">Expected Cr</th>
+                <th>System Acct</th>
+                <th class="num">Actual Dr</th>
+                <th class="num">Actual Cr</th>
+                <th class="num">Var Dr</th>
+                <th class="num">Var Cr</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for m in result.metrics %}
+            <tr>
+                <td><strong>{{ m.label }}</strong></td>
+                <td><span class="muted">{{ "+ → Cr / − → Dr" if m.rule == "positive_to_credit" else "+ → Dr / − → Cr" }}</span></td>
+                <td class="num">{{ "%.2f"|format(m.excel_positive) }}</td>
+                <td class="num">{{ "%.2f"|format(m.excel_negative) }}</td>
+                <td class="num dr">{{ "%.2f"|format(m.expected_debit) }}</td>
+                <td class="num cr">{{ "%.2f"|format(m.expected_credit) }}</td>
+                <td>{{ m.system_account_code or "—" }}</td>
+                <td class="num dr">{% if m.system_actual_debit is not none %}{{ "%.2f"|format(m.system_actual_debit) }}{% else %}—{% endif %}</td>
+                <td class="num cr">{% if m.system_actual_credit is not none %}{{ "%.2f"|format(m.system_actual_credit) }}{% else %}—{% endif %}</td>
+                <td class="num">{% if m.debit_variance is not none %}{{ "%.2f"|format(m.debit_variance) }}{% else %}—{% endif %}</td>
+                <td class="num">{% if m.credit_variance is not none %}{{ "%.2f"|format(m.credit_variance) }}{% else %}—{% endif %}</td>
+                <td>{% if m.within_tolerance is true %}<span class="badge badge-approved">OK</span>{% elif m.within_tolerance is false %}<span class="badge badge-unmatched">variance</span>{% else %}<span class="muted">no link</span>{% endif %}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<p><a href="/reconcile">← Run another reconciliation</a></p>
+{% endblock %}

@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}DSP Assignments{% endblock %}
+{% block page_heading %}DSP Assignments{% endblock %}
+{% block content %}
+
+{% if message %}<div class="alert success">{{ message }}</div>{% endif %}
+{% if error   %}<div class="alert danger">{{ error }}</div>{% endif %}
+
+{# ── Add / Edit single entry ── #}
+<div class="card">
+  <h3 style="margin-top:0;">Add or update a DSP assignment</h3>
+  <p class="muted">Enter the exact Sub Affiliate ID as it appears in the raw commission file, then assign a DSP tag (e.g. <code>dsp01</code>). Saving will overwrite any existing tag for that ID.</p>
+  <form method="post" action="/commission/dsp/save" class="form-grid" style="max-width:560px;">
+    <label>Sub Affiliate ID
+      <input type="text" name="sub_id" placeholder="e.g. Raymond" required>
+    </label>
+    <label>Sub Affiliate Name <span class="muted small">(optional)</span>
+      <input type="text" name="sub_name" placeholder="e.g. Mhymhon">
+    </label>
+    <label>DSP Tag
+      <input type="text" name="dsp_tag" placeholder="e.g. dsp01" required>
+    </label>
+    <div class="form-actions" style="margin-top:4px;">
+      <button class="button primary" type="submit">Save assignment</button>
+    </div>
+  </form>
+</div>
+
+{# ── Bulk import ── #}
+<div class="card">
+  <h3 style="margin-top:0;">Bulk import</h3>
+  <p class="muted">Paste comma-separated lines or upload a CSV. Accepted formats:</p>
+  <ul class="muted small" style="margin:0 0 10px 20px;">
+    <li><code>sub_affiliate_id, dsp_tag</code></li>
+    <li><code>sub_affiliate_id, sub_affiliate_name, dsp_tag</code></li>
+  </ul>
+  <form method="post" action="/commission/dsp/bulk-import" enctype="multipart/form-data">
+    <div style="display:grid; gap:10px;">
+      <label>Upload CSV file <span class="muted small">(optional)</span>
+        <input type="file" name="csv_file" accept=".csv,.txt">
+      </label>
+      <label>Or paste CSV text
+        <textarea name="csv_text" rows="6"
+                  placeholder="Raymond,dsp01&#10;Haydee,dsp01&#10;Elle123,dsp02&#10;Chelay20,dsp02"
+                  style="font-family:monospace; font-size:.85rem;"></textarea>
+      </label>
+    </div>
+    <button class="button" type="submit" style="margin-top:8px;">Import</button>
+  </form>
+</div>
+
+{# ── Current assignments table ── #}
+<div class="card">
+  <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+    <h3 style="margin:0;">Current DSP assignments ({{ rows|length }})</h3>
+    <input type="search" id="dsp-filter" placeholder="Filter…"
+           style="padding:6px 10px; border:1px solid #d0d5dd; border-radius:6px; font-size:.875rem; width:200px;"
+           oninput="filterTable(this.value)">
+  </div>
+
+  {% if rows %}
+  <div class="table-wrap">
+    <table id="dsp-table">
+      <thead>
+        <tr>
+          <th>Sub Affiliate ID</th>
+          <th>Sub Affiliate Name</th>
+          <th>DSP Tag</th>
+          <th>Last Updated</th>
+          <th style="width:120px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in rows %}
+        <tr id="row-{{ r.id }}">
+          {# ── View mode ── #}
+          <td class="view-cell">{{ r.sub_id }}</td>
+          <td class="view-cell">{{ r.sub_name or '—' }}</td>
+          <td class="view-cell">
+            <span style="display:inline-block; padding:2px 10px; border-radius:12px;
+                         background:#dcfce7; color:#166534; font-weight:600; font-size:.8rem;">
+              {{ r.dsp_tag or '—' }}
+            </span>
+          </td>
+          <td class="view-cell" style="color:#6b7280; font-size:.85rem;">{{ r.updated_at[:16] }}</td>
+          <td class="view-cell" style="display:flex; gap:6px;">
+            <button class="button" style="padding:3px 10px; font-size:.8rem;"
+                    onclick="startEdit({{ r.id }}, '{{ r.sub_id|e }}', '{{ r.sub_name|e }}', '{{ r.dsp_tag|e }}')">
+              Edit
+            </button>
+            <form method="post" action="/commission/dsp/{{ r.id }}/delete"
+                  onsubmit="return confirm('Delete assignment for {{ r.sub_id }}?')">
+              <button class="button" type="submit"
+                      style="padding:3px 10px; font-size:.8rem; background:#fee2e2; color:#b91c1c; border-color:#fca5a5;">
+                Delete
+              </button>
+            </form>
+          </td>
+
+          {# ── Edit mode (hidden by default) ── #}
+          <td class="edit-cell" style="display:none;" colspan="5">
+            <form method="post" action="/commission/dsp/save"
+                  style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <input type="hidden" name="sub_id" value="{{ r.sub_id }}">
+              <input type="text" name="sub_name" value="{{ r.sub_name }}"
+                     placeholder="Name (optional)"
+                     style="padding:4px 8px; border:1px solid #d0d5dd; border-radius:5px; width:180px; font-size:.875rem;">
+              <input type="text" name="dsp_tag" value="{{ r.dsp_tag }}"
+                     placeholder="DSP tag" required
+                     style="padding:4px 8px; border:1px solid #d0d5dd; border-radius:5px; width:100px; font-size:.875rem;">
+              <button class="button primary" type="submit"
+                      style="padding:4px 12px; font-size:.8rem;">Save</button>
+              <button class="button" type="button" style="padding:4px 12px; font-size:.8rem;"
+                      onclick="cancelEdit({{ r.id }})">Cancel</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted">No DSP assignments yet. Add them above, or run a commission computation — all sub-affiliates from the file will appear here automatically.</p>
+  {% endif %}
+</div>
+
+<div style="margin-top:8px;">
+  <a href="/commission" class="button">← Back to Commission</a>
+</div>
+
+<script nonce="{{ request.state.csp_nonce }}">
+function startEdit(id, subId, subName, dspTag) {
+  const row = document.getElementById('row-' + id);
+  row.querySelectorAll('.view-cell').forEach(c => c.style.display = 'none');
+  row.querySelector('.edit-cell').style.display = '';
+}
+function cancelEdit(id) {
+  const row = document.getElementById('row-' + id);
+  row.querySelectorAll('.view-cell').forEach(c => c.style.display = '');
+  row.querySelector('.edit-cell').style.display = 'none';
+}
+function filterTable(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll('#dsp-table tbody tr').forEach(tr => {
+    const text = tr.textContent.toLowerCase();
+    tr.style.display = text.includes(q) ? '' : 'none';
+  });
+}
+</script>
+{% endblock %}

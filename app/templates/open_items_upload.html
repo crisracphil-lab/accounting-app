@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}BookPoint - Open Items{% endblock %}
+{% block page_heading %}Open Items / Unclosed Transactions{% endblock %}
+{% block content %}
+<section class="hero-panel compact">
+  <div>
+    <div class="eyebrow">Clearing reconciliation</div>
+    <h2>Check whether receivables, advances, due from/to, or accruals were already closed.</h2>
+    <p>Upload a real ledger Excel/CSV file, choose the account title or code, and BookPoint will match opening entries against later clearing entries. No mock or fallback data is used.</p>
+  </div>
+</section>
+
+<div class="card">
+  <div class="section-head"><div><h3>Run open item analysis</h3><p class="muted">For AR Trade or Advances, debit entries usually open the item and credit entries close it. For Accrued Expenses or payables, credit entries usually open the item and debit entries close it.</p></div></div>
+  {% if error %}
+  <div class="alert danger" style="margin-bottom:12px;">
+    <strong>Could not process file:</strong>
+    <pre style="margin:6px 0 0; white-space:pre-wrap; font-size:.85rem; background:transparent; border:none; padding:0;">{{ error }}</pre>
+  </div>
+  {% endif %}
+  <form action="/open-items" method="post" enctype="multipart/form-data" class="form-grid two">
+    <label>Ledger / transaction file
+      <input type="file" name="ledger_file" accept=".xlsx,.xlsm,.xls,.csv" required>
+    </label>
+    <label>Account title or code to analyze
+      <input type="text" name="account_filter" placeholder="e.g. Accounts Receivable - Trade, Advances, 1110" required>
+    </label>
+    <label>Opening side
+      <select name="open_side">
+        <option value="auto">Auto-detect from account title</option>
+        <option value="debit">Debit opens / Credit closes</option>
+        <option value="credit">Credit opens / Debit closes</option>
+      </select>
+    </label>
+    <label>Amount tolerance
+      <input type="number" name="tolerance" step="0.01" value="0.05">
+    </label>
+    <div class="form-actions"><button class="button primary" type="submit">Analyze open items</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="section-head"><h3>Recent open item runs</h3></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>ID</th><th>File</th><th>Account filter</th><th>Opening side</th><th class="num">Rows</th><th class="num">Open</th><th class="num">Partial</th><th class="num">Closed</th><th>Created</th></tr></thead>
+      <tbody>{% for r in runs %}<tr>
+        <td><a href="/open-items/{{ r.id }}">#{{ r.id }}</a></td>
+        <td>{{ r.filename }}</td>
+        <td>{{ r.account_filter }}</td>
+        <td>{{ r.open_side }}</td>
+        <td class="num">{{ r.row_count }}</td>
+        <td class="num">{{ r.open_count }}</td>
+        <td class="num">{{ r.partial_count }}</td>
+        <td class="num">{{ r.closed_count }}</td>
+        <td>{{ r.created_at }}</td>
+      </tr>{% else %}<tr><td colspan="9" class="muted">No open item runs yet.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

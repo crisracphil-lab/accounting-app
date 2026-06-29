@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% block title %}BookPoint — Ops Reconciliation{% endblock %}
+{% block page_heading %}Operations Reconciliation{% endblock %}
+{% block content %}
+
+{# ── Company tabs ──────────────────────────────────────────────────────────── #}
+{% if companies|length > 1 %}
+<div class="status-strip company-tabs" style="margin-bottom:12px">
+  {% for c in companies %}
+    <a class="status-pill {% if selected_company_id == c.id %}active{% endif %}"
+       href="/ops-reconciliation?company_id={{ c.id }}&months={{ months }}">{{ c.name }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ── KPI cards ─────────────────────────────────────────────────────────────── #}
+<div class="kpi-grid" style="display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));margin-bottom:18px">
+  <div class="stat-box">
+    <div class="stat-icon emerald">✅</div>
+    <div>
+      <div class="stat-label">Matched to bank</div>
+      <div class="stat-value">{{ matched_count }}</div>
+      <div class="stat-note">Request ↔ debit found</div>
+    </div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-icon rose">⚠️</div>
+    <div>
+      <div class="stat-label">Approved, no bank match</div>
+      <div class="stat-value">{{ unmatched_count }}</div>
+      <div class="stat-note">Approved/paid, debit missing</div>
+    </div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-icon amber">🕐</div>
+    <div>
+      <div class="stat-label">Pending approval</div>
+      <div class="stat-value">{{ pending_count }}</div>
+      <div class="stat-note">Not yet approved</div>
+    </div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-icon rose">🔁</div>
+    <div>
+      <div class="stat-label">Possible duplicates</div>
+      <div class="stat-value">{{ duplicate_count }}</div>
+      <div class="stat-note">Same payee+amount, ≤30 days</div>
+    </div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-icon amber">🏦</div>
+    <div>
+      <div class="stat-label">Bank debits unmatched</div>
+      <div class="stat-value">{{ unmatched_bank|length }}</div>
+      <div class="stat-note">&gt;₱50k, no matching request</div>
+    </div>
+  </div>
+</div>
+
+{# ── Lookback filter ───────────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:18px">
+  <form method="get" action="/ops-reconciliation" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <input type="hidden" name="company_id" value="{{ selected_company_id }}">
+    <label style="font-size:13px;display:flex;align-items:center;gap:6px">
+      Show last
+      <select name="months" style="font-size:13px;padding:4px 8px">
+        {% for m in [1,2,3,6,12] %}
+          <option value="{{ m }}" {% if months==m %}selected{% endif %}>{{ m }} month{% if m>1 %}s{% endif %}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="button primary" type="submit" style="font-size:13px">Apply</button>
+    <span class="muted small">Showing reimbursements above ₱50,000 · bank window is 2× the selected period</span>
+  </form>
+</div>
+
+{# ══════════════════════════════════════════════════════════════════════════════
+   PANEL A — Requests vs. Bank Transactions
+══════════════════════════════════════════════════════════════════════════════ #}
+<div class="card" style="margin-bottom:24px">
+  <div class="section-head">
+    <div>
+      <h3>Panel A — Requests vs. Bank Payments</h3>
+      <p class="muted">Every reimbursement &gt;₱50,000 matched against uploaded bank debits. A match requires identical amount within ±45 days.</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Date submitted</th>
+          <th>Requester</th>
+          <th>Payee</th>
+          <th class="num">Amount</th>
+          <th>Status</th>
+          <th>Match</th>
+          <th>Bank transaction(s)</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in ops_requests %}
+      <tr {% if r.duplicate_flag %}style="background:rgba(239,68,68,.06)"{% endif %}>
+        <td><a href="/requests/{{ r.id }}">#{{ r.id }}</a>
+          {% if r.duplicate_flag %}<br><span class="badge warning" style="font-size:10px">⚠ duplicate</span>{% endif %}
+        </td>
+        <td class="muted small" style="white-space:nowrap">{{ (r.created_at or '')[:10] }}</td>
+        <td>{{ r.requester_name or r.requester_username or '—' }}<br>
+            <span class="muted small">{{ r.department_name or '' }}</span></td>
+        <td><strong>{{ r.payee_name }}</strong></td>
+        <td class="num">{{ r.amount|money }}</td>
+        <td><span class="badge badge-{{ r.status }}">{{ r.status.replace('_',' ') }}</span></td>
+        <td style="text-align:center">
+          {% if r.is_matched %}
+            <span style="color:#059669;font-size:18px" title="Bank debit found">✅</span>
+          {% elif r.status in ['approved','paid'] %}
+            <span style="color:#dc2626;font-size:18px" title="No matching bank debit">❌</span>
+          {% else %}
+            <span style="color:#9ca3af;font-size:16px" title="Pending — not yet approved">—</span>
+          {% endif %}
+        </td>
+        <td style="font-size:12px;max-width:260px">
+          {% if r.bank_matches %}
+            {% for tx in r.bank_matches %}
+              <div style="padding:2px 0;border-bottom:1px solid var(--border)">
+                <span class="muted">{{ tx.transaction_date[:10] }}</span>
+                <strong style="margin:0 4px">{{ tx.debit_amount|money }}</strong>
+                <span class="muted">{{ tx.description[:50] or tx.counterparty_name or '—' }}</span>
+              </div>
+            {% endfor %}
+          {% else %}
+            <span class="muted">No match</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="muted" style="text-align:center;padding:32px">No reimbursements above ₱50,000 found.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ══════════════════════════════════════════════════════════════════════════════
+   PANEL B — Duplicate Request Groups
+══════════════════════════════════════════════════════════════════════════════ #}
+<div class="card" style="margin-bottom:24px">
+  <div class="section-head">
+    <div>
+      <h3>Panel B — Possible Duplicate Requests</h3>
+      <p class="muted">Groups of two or more requests sharing the same payee and exact amount, submitted within 30 days of each other.</p>
+    </div>
+  </div>
+
+  {% if duplicate_groups %}
+    {% for grp in duplicate_groups %}
+    <div style="margin-bottom:18px;border:1px solid #fca5a5;border-radius:8px;overflow:hidden">
+      <div style="background:rgba(239,68,68,.08);padding:10px 16px;border-bottom:1px solid #fca5a5;display:flex;gap:16px;align-items:center">
+        <span style="font-weight:700;color:#dc2626">⚠ Possible duplicate group</span>
+        <span><strong>Payee:</strong> {{ grp.payee }}</span>
+        <span><strong>Amount:</strong> {{ grp.amount|money }}</span>
+        <span class="muted small">{{ grp.requests|length }} requests</span>
+      </div>
+      <div class="table-wrap" style="margin:0">
+        <table style="margin:0">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Date submitted</th>
+              <th>Requester</th>
+              <th>Description</th>
+              <th>Status</th>
+              <th>Bank match</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for r in grp.requests %}
+          <tr>
+            <td><a href="/requests/{{ r.id }}">#{{ r.id }}</a></td>
+            <td class="muted small" style="white-space:nowrap">{{ (r.created_at or '')[:10] }}</td>
+            <td>{{ r.requester_name or r.requester_username or '—' }}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ r.description }}">{{ r.description }}</td>
+            <td><span class="badge badge-{{ r.status }}">{{ r.status.replace('_',' ') }}</span></td>
+            <td style="text-align:center">
+              {% if r.is_matched %}<span style="color:#059669">✅</span>
+              {% else %}<span class="muted">—</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="muted" style="text-align:center;padding:32px">
+      <span style="font-size:32px">✅</span><br>
+      No duplicate requests detected in the selected period.
+    </div>
+  {% endif %}
+</div>
+
+{# ══════════════════════════════════════════════════════════════════════════════
+   PANEL C — Bank Debits Without a Matching Request
+══════════════════════════════════════════════════════════════════════════════ #}
+<div class="card">
+  <div class="section-head">
+    <div>
+      <h3>Panel C — Bank Debits Without a Matching Request</h3>
+      <p class="muted">Bank debit transactions above ₱50,000 that have no corresponding approved reimbursement request. These may need investigation.</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Tx date</th>
+          <th>Description</th>
+          <th>Counterparty</th>
+          <th>Reference</th>
+          <th class="num">Debit amount</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for tx in unmatched_bank %}
+      <tr>
+        <td class="muted small" style="white-space:nowrap">{{ tx.transaction_date[:10] }}</td>
+        <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ tx.description }}">{{ tx.description }}</td>
+        <td>{{ tx.counterparty_name or '—' }}</td>
+        <td class="muted small">{{ tx.reference_number or tx.check_number or '—' }}</td>
+        <td class="num" style="color:#dc2626;font-weight:700">{{ tx.debit_amount|money }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted" style="text-align:center;padding:32px">
+        No unmatched bank debits above ₱50,000 found in the selected period. 🎉
+      </td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

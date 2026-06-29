@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Financial Statements{% endblock %}
+{% block content %}
+<h2>Financial Statements</h2>
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<div class="card">
+    <h3 style="margin-top:0;">Upload financial statement</h3>
+    <p>Upload your monthly FS workbook (.xls or .xlsx) with <code>IS3</code> + <code>BS</code> sheets. The app reads every account row including any existing <em>Reasons/Remarks</em> you've already typed in. You can then edit remarks inline and download an updated .xlsx.</p>
+    <form method="post" action="/fs/upload" enctype="multipart/form-data">
+        <div style="display:grid; grid-template-columns:200px 1fr; gap:12px; align-items:center; margin-bottom:16px;">
+            <label>FS file (.xls / .xlsx):</label>
+            <input type="file" name="file" accept=".xls,.xlsx,.xlsm" required>
+            <label>Period label:</label>
+            <input type="text" name="period_label" placeholder="e.g. March 2026" required>
+        </div>
+        <button type="submit">Upload</button>
+    </form>
+</div>
+
+{% if uploads %}
+<div class="card">
+    <h3 style="margin-top:0;">Previous uploads</h3>
+    <table>
+        <thead><tr><th>#</th><th>Period</th><th>Company</th><th>Source</th><th>Created</th></tr></thead>
+        <tbody>
+        {% for u in uploads %}
+            <tr>
+                <td><a href="/fs/{{ u.id }}">#{{ u.id }}</a></td>
+                <td>{{ u.period_label }}</td>
+                <td>{{ u.company_name or "" }}</td>
+                <td><span class="muted">{{ (u.source_filename or "")|truncate(60) }}</span></td>
+                <td>{{ u.created_at }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

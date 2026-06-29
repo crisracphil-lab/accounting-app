@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}BookPoint - Notifications{% endblock %}
+{% block page_heading %}Notifications{% endblock %}
+{% block content %}
+<div class="card"><div class="section-head"><h3>Recent notifications</h3></div><div class="request-timeline">
+{% for n in notifications %}<a class="timeline-item {% if 'reject' in n.title|lower or 'reject' in n.message|lower %}notification-rejected{% endif %}" href="{{ n.link_url or '#' }}"><strong>{{ n.title }}</strong><br><span>{{ n.message }}</span><br><span class="muted">{{ n.created_at|english_date }}</span></a>{% else %}<p class="muted">No notifications.</p>{% endfor %}
+</div></div>
+{% endblock %}

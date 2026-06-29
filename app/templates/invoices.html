@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}BookPoint - Invoices & Matching{% endblock %}
+{% block page_heading %}Invoices & Matching{% endblock %}
+{% block content %}
+<section class="hero-panel compact">
+  <div>
+    <div class="eyebrow">Invoice control</div>
+    <h2>Match invoices to bank payments and create reviewable accounting treatment.</h2>
+    <p>Upload supplier invoice summaries, match against real bank transactions/payment instructions, classify advances, and accrue unpaid invoices.</p>
+  </div>
+</section>
+{% if message %}<div class="alert success">{{ message }}</div>{% endif %}
+<div class="stats kpi-grid four">
+  <div class="stat-box"><div class="stat-icon amber">UM</div><div><div class="stat-label">Unmatched invoices</div><div class="stat-value">{{ stats.unmatched }}</div></div></div>
+  <div class="stat-box"><div class="stat-icon emerald">MT</div><div><div class="stat-label">Matched to payment</div><div class="stat-value">{{ stats.matched }}</div></div></div>
+  <div class="stat-box"><div class="stat-icon blue">AC</div><div><div class="stat-label">Accrued expenses</div><div class="stat-value">{{ stats.accrued }}</div></div></div>
+  <div class="stat-box"><div class="stat-icon violet">AD</div><div><div class="stat-label">Advances</div><div class="stat-value">{{ stats.advances }}</div></div></div>
+</div>
+<div class="dashboard-grid">
+  <section class="card">
+    <div class="section-head"><div><h3>Upload invoices / receipts</h3><p class="muted">Supports .xlsx/.xlsm invoice summary files. Columns are detected flexibly.</p></div></div>
+    <form action="/invoices/upload" method="post" enctype="multipart/form-data" class="form-grid">
+      <label>Invoice workbook<input type="file" name="file" accept=".xlsx,.xlsm" required></label>
+      <div class="form-actions"><button class="button primary" type="submit">Upload invoices</button></div>
+    </form>
+  </section>
+  <aside class="card">
+    <div class="section-head"><h3>Run matching</h3><span class="badge badge-draft">draft JE only</span></div>
+    <p class="muted">Uses real uploaded invoices, bank transactions, and payment instructions. No dummy data is generated.</p>
+    <form action="/invoices/match" method="post"><button class="button primary" type="submit">Match invoices & classify</button></form>
+  </aside>
+</div>
+<div class="card">
+  <div class="section-head"><div><h3>Invoices</h3><p class="muted">Invoices with no payment become accrued expenses. Matched invoices stay linked for review.</p></div>
+    <div class="segmented"><a href="/invoices" class="{% if not status %}active{% endif %}">All</a><a href="/invoices?status=unmatched" class="{% if status=='unmatched' %}active{% endif %}">Unmatched</a><a href="/invoices?status=matched_payment" class="{% if status=='matched_payment' %}active{% endif %}">Matched</a><a href="/invoices?status=accrued_expense" class="{% if status=='accrued_expense' %}active{% endif %}">Accrued</a></div>
+  </div>
+  <div class="table-wrap"><table><thead><tr><th>ID</th><th>Invoice</th><th>Date</th><th>Supplier</th><th>Description</th><th class="num">Gross</th><th class="num">Net</th><th>Status</th><th>JE</th></tr></thead><tbody>
+  {% for i in invoices %}<tr><td><a href="/invoices/{{ i.id }}">#{{ i.id }}</a></td><td>{{ i.invoice_number or '-' }}</td><td>{{ i.invoice_date or '-' }}</td><td><strong>{{ i.supplier_name }}</strong></td><td>{{ i.description or '-' }}</td><td class="num">{{ i.gross_amount|money }}</td><td class="num">{{ i.net_amount|money }}</td><td><span class="badge badge-{{ i.status }}">{{ i.status.replace('_',' ') }}</span></td><td>{% if i.matched_journal_entry_id %}<a href="/journal-entries/{{ i.matched_journal_entry_id }}">JE #{{ i.matched_journal_entry_id }}</a> <span class="muted">{{ i.je_status }}</span>{% else %}-{% endif %}</td></tr>{% else %}<tr><td colspan="9" class="muted">No invoices uploaded yet.</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+<div class="card">
+  <div class="section-head"><div><h3>Advance payments without uploaded invoice</h3><p class="muted">Payments found in bank/payment uploads but not supported by uploaded invoices are recorded as Advances to Suppliers via draft JE.</p></div></div>
+  <div class="table-wrap"><table><thead><tr><th>Source</th><th>Date</th><th>Description / Payee</th><th class="num">Amount</th><th>Reason</th><th>JE</th></tr></thead><tbody>
+  {% for a in advance_rows %}<tr><td>{% if a.bank_transaction_id %}Bank{% else %}Payment register{% endif %}</td><td>{{ a.bank_date or a.payment_date or '-' }}</td><td>{{ a.bank_description or a.beneficiary_name or '-' }}</td><td class="num">{{ (a.bank_amount or a.payment_amount)|money }}</td><td>{{ a.reason }}</td><td>{% if a.journal_entry_id %}<a href="/journal-entries/{{ a.journal_entry_id }}">JE #{{ a.journal_entry_id }}</a> <span class="muted">{{ a.je_status }}</span>{% else %}-{% endif %}</td></tr>{% else %}<tr><td colspan="6" class="muted">No advance classifications yet.</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+<div class="card"><div class="section-head"><h3>Invoice uploads</h3></div><div class="table-wrap"><table><thead><tr><th>File</th><th class="num">Rows</th><th>Uploaded</th></tr></thead><tbody>{% for u in uploads %}<tr><td>{{ u.filename }}</td><td class="num">{{ u.parsed_count }}</td><td>{{ u.uploaded_at }}</td></tr>{% else %}<tr><td colspan="3" class="muted">No uploads.</td></tr>{% endfor %}</tbody></table></div></div>
+{% endblock %}

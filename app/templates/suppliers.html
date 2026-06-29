@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}Suppliers{% endblock %}
+{% block page_heading %}Supplier Master File{% endblock %}
+{% block content %}
+
+{% if message %}<div class="alert success" style="margin-bottom:14px">{{ message }}</div>{% endif %}
+{% if error %}<div class="alert danger" style="margin-bottom:14px">{{ error }}</div>{% endif %}
+
+{# ── Two-column header ─────────────────────────────────────────────────────── #}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;">
+
+  {# Add supplier form #}
+  <div class="card" style="margin:0;">
+    <h3>Add Supplier</h3>
+    <p class="muted" style="font-size:13px;">All app users can view the supplier list. Changes are audited.</p>
+    <form method="post" action="/suppliers/create" style="margin-top:10px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div style="grid-column:1/-1;">
+          <label style="font-size:12px;font-weight:600;">Supplier / vendor name <span style="color:#dc2626">*</span></label>
+          <input type="text" name="name" required placeholder="e.g. Meralco"
+                 style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;">TIN</label>
+          <input type="text" name="tin" placeholder="000-000-000-00000"
+                 style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;">Status</label>
+          <select name="is_active" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+            <option value="1">Active</option>
+            <option value="0">Inactive</option>
+          </select>
+        </div>
+        <div style="grid-column:1/-1;">
+          <label style="font-size:12px;font-weight:600;">Default expense account</label>
+          <select name="default_expense_account_id" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+            <option value="0">No default account</option>
+            {% for a in accounts %}<option value="{{ a.id }}">{{ a.code }} — {{ a.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div style="grid-column:1/-1;">
+          <label style="font-size:12px;font-weight:600;">Initial aliases (one per line or comma-separated)</label>
+          <textarea name="aliases" rows="2" placeholder="MERALCO, MANILA ELECTRIC"
+                    style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;resize:vertical;box-sizing:border-box;"></textarea>
+        </div>
+        <div style="grid-column:1/-1;">
+          <button type="submit" class="button primary">Create supplier</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  {# Governance card #}
+  <div class="card" style="margin:0;">
+    <div class="stat-icon emerald" style="font-size:28px;margin-bottom:10px;">🏢</div>
+    <h3>Supplier Governance</h3>
+    <p class="muted" style="font-size:13px;margin-top:6px;">
+      Supplier names and aliases are used across the entire system — invoice matching,
+      bank transaction classification, and journal entry review all depend on this list.
+    </p>
+    <p class="muted" style="font-size:13px;margin-top:8px;">
+      <strong>Aliases</strong> are keyword patterns matched against bank descriptions.
+      Add the partial text that appears in your bank statements (e.g. "MERALCO", "MANILA ELECTRIC").
+    </p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;">
+      <span class="badge success">Visible to all users</span>
+      <span class="badge info">Editable in-app</span>
+      <span class="badge warning">Audited changes</span>
+    </div>
+    <div style="margin-top:14px;padding:10px 12px;background:rgba(99,102,241,.06);border-radius:8px;font-size:12px;">
+      <strong>Deactivate vs. Delete:</strong> suppliers are always <em>deactivated</em>
+      (is_active = 0) rather than hard-deleted, preserving transaction history and audit trails.
+    </div>
+  </div>
+</div>
+
+{# ── Supplier table ────────────────────────────────────────────────────────── #}
+<div class="card">
+  <div class="section-head">
+    <div>
+      <h3>Suppliers
+        <span class="muted" style="font-size:13px;font-weight:400;">
+          {{ rows|selectattr("is_active")|list|length }} active / {{ rows|length }} total
+        </span>
+      </h3>
+    </div>
+    <input type="text" id="sup-search" placeholder="Filter suppliers…"
+           style="padding:7px 12px;border:1px solid var(--border);border-radius:20px;font-size:13px;width:220px;">
+  </div>
+
+  <div class="table-wrap">
+    <table id="sup-table">
+      <thead>
+        <tr>
+          <th>Supplier</th>
+          <th>TIN</th>
+          <th>Default account</th>
+          <th>Aliases</th>
+          <th class="num">Tx</th>
+          <th>Status</th>
+          <th style="width:140px;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in rows %}
+      {% set als = aliases_by_sup.get(r.id, []) %}
+      <tr data-search="{{ r.name }} {{ r.tin or '' }} {% for a in als %}{{ a.alias }} {% endfor %}"
+          style="{% if not r.is_active %}opacity:0.5;{% endif %}">
+        <td><strong>{{ r.name }}</strong></td>
+        <td class="muted small">{{ r.tin or '—' }}</td>
+        <td class="muted small">
+          {% if r.default_expense_account_code %}
+            {{ r.default_expense_account_code }} — {{ r.default_expense_account_name }}
+          {% else %}—{% endif %}
+        </td>
+        <td style="font-size:12px;max-width:200px;">
+          {% if als %}
+            {% for a in als %}
+            <span class="badge" style="margin:1px 2px 1px 0;font-size:11px;display:inline-flex;align-items:center;gap:3px;">
+              {{ a.alias }}
+              {% if current_user and current_user.role == 'admin' %}
+              <form method="post" action="/suppliers/{{ r.id }}/aliases/{{ a.id }}/delete"
+                    style="display:inline;margin:0;padding:0;"
+                    onsubmit="return confirm('Remove alias {{ a.alias }}?')">
+                <button type="submit"
+                        style="background:none;border:none;cursor:pointer;padding:0 1px;line-height:1;font-size:11px;color:inherit;opacity:0.6;"
+                        title="Remove alias">×</button>
+              </form>
+              {% endif %}
+            </span>
+            {% endfor %}
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
+        <td class="num">{{ r.tx_count }}</td>
+        <td>
+          {% if r.is_active %}
+            <span class="badge success">Active</span>
+          {% else %}
+            <span class="badge">Inactive</span>
+          {% endif %}
+        </td>
+        <td style="white-space:nowrap;position:relative;">
+          {# Edit popup #}
+          <details style="display:inline;">
+            <summary class="button" style="padding:3px 10px;font-size:12px;cursor:pointer;display:inline-block;list-style:none;">Edit</summary>
+            <div style="position:absolute;z-index:100;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;min-width:340px;box-shadow:0 4px 20px rgba(0,0,0,.14);right:0;top:28px;">
+
+              {# ── Edit core fields ─────────────────────── #}
+              <form method="post" action="/suppliers/{{ r.id }}/update">
+                <div style="margin-bottom:7px;">
+                  <label style="font-size:12px;font-weight:600;">Name</label>
+                  <input type="text" name="name" value="{{ r.name }}" required
+                         style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px;box-sizing:border-box;">
+                </div>
+                <div style="margin-bottom:7px;">
+                  <label style="font-size:12px;font-weight:600;">TIN</label>
+                  <input type="text" name="tin" value="{{ r.tin or '' }}"
+                         style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px;box-sizing:border-box;">
+                </div>
+                <div style="margin-bottom:7px;">
+                  <label style="font-size:12px;font-weight:600;">Default expense account</label>
+                  <select name="default_expense_account_id"
+                          style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px;">
+                    <option value="0">No default</option>
+                    {% for a in accounts %}
+                    <option value="{{ a.id }}" {% if r.default_expense_account_id == a.id %}selected{% endif %}>{{ a.code }} — {{ a.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div style="margin-bottom:10px;">
+                  <label style="font-size:12px;font-weight:600;">Status</label>
+                  <select name="is_active"
+                          style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px;">
+                    <option value="1" {% if r.is_active %}selected{% endif %}>Active</option>
+                    <option value="0" {% if not r.is_active %}selected{% endif %}>Inactive</option>
+                  </select>
+                </div>
+                <button type="submit" class="button primary" style="font-size:12px;padding:5px 14px;">Save changes</button>
+              </form>
+
+              {# ── Alias management (outside the edit form to avoid nesting) ── #}
+              {% if current_user and current_user.role == 'admin' %}
+              <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);">
+                <label style="font-size:12px;font-weight:600;">Matching aliases</label>
+                {% if als %}
+                <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;margin-bottom:8px;">
+                  {% for a in als %}
+                  <span style="display:inline-flex;align-items:center;gap:3px;background:var(--surface-2,#f1f5f9);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px;">
+                    {{ a.alias }}
+                    <form method="post" action="/suppliers/{{ r.id }}/aliases/{{ a.id }}/delete"
+                          style="display:inline;margin:0;" onsubmit="return confirm('Remove alias {{ a.alias }}?')">
+                      <button type="submit"
+                              style="background:none;border:none;cursor:pointer;padding:0 1px;font-size:12px;line-height:1;color:#dc2626;"
+                              title="Remove">×</button>
+                    </form>
+                  </span>
+                  {% endfor %}
+                </div>
+                {% else %}
+                <p class="muted" style="font-size:12px;margin:5px 0 8px;">No aliases yet.</p>
+                {% endif %}
+                <form method="post" action="/suppliers/{{ r.id }}/aliases/add"
+                      style="display:flex;gap:6px;align-items:center;">
+                  <input type="text" name="alias" placeholder="e.g. MERALCO CORP" required
+                         style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px;">
+                  <button type="submit" class="button" style="font-size:12px;padding:4px 10px;white-space:nowrap;">Add alias</button>
+                </form>
+              </div>
+
+              {# ── Deactivate button ────────────────────── #}
+              {% if r.is_active %}
+              <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
+                <form method="post" action="/suppliers/{{ r.id }}/delete"
+                      onsubmit="return confirm('Deactivate supplier {{ r.name }}? It will be hidden from matching but kept for history.')">
+                  <button type="submit"
+                          style="font-size:12px;padding:4px 12px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;cursor:pointer;width:100%;">
+                    Deactivate supplier
+                  </button>
+                </form>
+              </div>
+              {% endif %}
+              {% endif %}{# end admin check #}
+
+            </div>
+          </details>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="muted" style="text-align:center;padding:32px;">No suppliers yet. Add one above.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script nonce="{{ request.state.csp_nonce }}">
+document.getElementById('sup-search').addEventListener('input', function() {
+  const q = this.value.toLowerCase();
+  document.querySelectorAll('#sup-table tbody tr').forEach(function(row) {
+    const text = (row.dataset.search || '').toLowerCase();
+    row.style.display = text.includes(q) ? '' : 'none';
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,378 @@
+{% extends "base.html" %}
+{% block title %}Bank Reconciliation Result{% endblock %}
+{% block page_heading %}Bank Reconciliation{% endblock %}
+
+{% macro fmt(val) %}{{ "{:,.2f}".format(val|float) }}{% endmacro %}
+{% macro amt_cell(val) %}{% if val is not none %}{{ "{:,.2f}".format(val|float) }}{% endif %}{% endmacro %}
+
+{% block content %}
+
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+{#  HEADER CARD                                                                #}
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+<div class="card">
+  <div class="section-head">
+    <div>
+      {% if result.summary.company_name %}
+        <h3 style="margin:0;">{{ result.summary.company_name }}</h3>
+      {% else %}
+        <h3 style="margin:0;">Bank Reconciliation</h3>
+      {% endif %}
+      <p class="muted" style="margin:4px 0 0;">
+        {% if result.summary.bank_account %}Account: {{ result.summary.bank_account }} &nbsp;|&nbsp; {% endif %}
+        {% if result.summary.statement_date %}As of: {{ result.summary.statement_date }} &nbsp;|&nbsp; {% endif %}
+        {{ result.system_filename }} vs {{ result.bank_filename }}
+      </p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      {% if download_token %}
+      <a class="button ghost" href="/reconcile/bank-system/export/{{ download_token }}">Download Excel</a>
+      {% endif %}
+      <a class="button ghost" href="/reconcile/bank-system">New reconciliation</a>
+    </div>
+  </div>
+
+  {# Reconciliation status badge #}
+  <div style="margin-top:12px;">
+    {% if result.summary.reconciled %}
+      <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px 16px;display:flex;align-items:center;gap:10px;">
+        <span style="font-size:20px;">✅</span>
+        <div>
+          <strong style="color:#166534;">RECONCILED</strong>
+          <span class="muted" style="margin-left:8px;">Adjusted bank balance equals adjusted book balance.</span>
+        </div>
+      </div>
+    {% else %}
+      <div style="background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:12px 16px;display:flex;align-items:center;gap:10px;">
+        <span style="font-size:20px;">⚠️</span>
+        <div>
+          <strong style="color:#9a3412;">NOT RECONCILED</strong>
+          <span class="muted" style="margin-left:8px;">Difference of
+            <strong style="color:#dc2626;">{{ fmt(result.summary.balance_difference) }}</strong>
+            between adjusted balances. Review the transaction details below.
+          </span>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+{#  STANDARD RECONCILIATION FORMAT                                             #}
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+
+  {# ── Bank Side ─────────────────────────────────────────────────────────── #}
+  <div class="card" style="margin:0;">
+    <h3 style="margin-top:0;border-bottom:2px solid #1d4ed8;padding-bottom:8px;color:#1d4ed8;">
+      Bank Statement
+    </h3>
+    <table style="width:100%;">
+      <tbody>
+        <tr>
+          <td>Balance per bank statement</td>
+          <td class="num"><strong>{{ fmt(result.summary.bank_balance) }}</strong></td>
+        </tr>
+        <tr style="color:#16a34a;">
+          <td>
+            Add: Deposits in transit
+            {% if result.summary.deposits_in_transit_count %}
+              <span class="muted" style="font-size:11px;">({{ result.summary.deposits_in_transit_count }} item{{ 's' if result.summary.deposits_in_transit_count != 1 }})</span>
+            {% endif %}
+          </td>
+          <td class="num">{{ fmt(result.summary.deposits_in_transit) }}</td>
+        </tr>
+        <tr style="color:#dc2626;">
+          <td>
+            Less: Outstanding checks
+            {% if result.summary.outstanding_checks_count %}
+              <span class="muted" style="font-size:11px;">({{ result.summary.outstanding_checks_count }} item{{ 's' if result.summary.outstanding_checks_count != 1 }})</span>
+            {% endif %}
+          </td>
+          <td class="num">({{ fmt(result.summary.outstanding_checks) }})</td>
+        </tr>
+        <tr style="border-top:2px solid #1d4ed8;font-weight:bold;">
+          <td style="padding-top:8px;">Adjusted bank balance</td>
+          <td class="num" style="padding-top:8px;font-size:15px;color:#1d4ed8;">
+            {{ fmt(result.summary.adjusted_bank_balance) }}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="muted" style="font-size:11px;margin-top:12px;">
+      Deposits in transit = system debits not yet reflected in bank.<br>
+      Outstanding checks = system credits not yet cleared by bank.
+    </p>
+  </div>
+
+  {# ── Book Side ──────────────────────────────────────────────────────────── #}
+  <div class="card" style="margin:0;">
+    <h3 style="margin-top:0;border-bottom:2px solid #7c3aed;padding-bottom:8px;color:#7c3aed;">
+      Cash Book (System)
+    </h3>
+    <table style="width:100%;">
+      <tbody>
+        <tr>
+          <td>Balance per cash book</td>
+          <td class="num"><strong>{{ fmt(result.summary.book_balance) }}</strong></td>
+        </tr>
+        <tr style="color:#16a34a;">
+          <td>
+            Add: Bank credits not yet recorded
+            {% if result.summary.bank_credits_count %}
+              <span class="muted" style="font-size:11px;">({{ result.summary.bank_credits_count }} item{{ 's' if result.summary.bank_credits_count != 1 }})</span>
+            {% endif %}
+          </td>
+          <td class="num">{{ fmt(result.summary.bank_credits_not_in_books) }}</td>
+        </tr>
+        <tr style="color:#dc2626;">
+          <td>
+            Less: Bank charges not yet recorded
+            {% if result.summary.bank_charges_count %}
+              <span class="muted" style="font-size:11px;">({{ result.summary.bank_charges_count }} item{{ 's' if result.summary.bank_charges_count != 1 }})</span>
+            {% endif %}
+          </td>
+          <td class="num">({{ fmt(result.summary.bank_charges_not_in_books) }})</td>
+        </tr>
+        <tr style="border-top:2px solid #7c3aed;font-weight:bold;">
+          <td style="padding-top:8px;">Adjusted book balance</td>
+          <td class="num" style="padding-top:8px;font-size:15px;color:#7c3aed;">
+            {{ fmt(result.summary.adjusted_book_balance) }}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="muted" style="font-size:11px;margin-top:12px;">
+      Bank credits not in books = bank deposits not yet recorded in system.<br>
+      Bank charges not in books = bank fees/debits not yet recorded in system.
+    </p>
+  </div>
+</div>
+
+{# ── Reconciliation check ────────────────────────────────────────────────── #}
+<div class="card">
+  <h3 style="margin-top:0;">Reconciliation Check</h3>
+  <table style="max-width:500px;">
+    <tbody>
+      <tr>
+        <td>Adjusted bank balance</td>
+        <td class="num"><strong>{{ fmt(result.summary.adjusted_bank_balance) }}</strong></td>
+      </tr>
+      <tr>
+        <td>Adjusted book balance</td>
+        <td class="num"><strong>{{ fmt(result.summary.adjusted_book_balance) }}</strong></td>
+      </tr>
+      <tr style="border-top:2px solid #e5e7eb;">
+        <td style="padding-top:8px;"><strong>Difference</strong></td>
+        <td class="num" style="padding-top:8px;">
+          {% if result.summary.reconciled %}
+            <span style="color:#16a34a;font-weight:bold;">0.00 ✓</span>
+          {% else %}
+            <span style="color:#dc2626;font-weight:bold;">{{ fmt(result.summary.balance_difference) }}</span>
+          {% endif %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="stats" style="margin-top:16px;">
+    <div class="stat-box"><div class="stat-label">Total Transactions</div><div class="stat-value">{{ result.rows|length }}</div></div>
+    <div class="stat-box"><div class="stat-label">Matched</div><div class="stat-value">{{ result.matched_count }}</div></div>
+    {% set diff_count = result.rows|selectattr("status","equalto","MATCHED (DIFFERENCE)")|list|length %}
+    {% if diff_count > 0 %}
+    <div class="stat-box" style="background:#fffbeb;border-color:#ffc107;">
+      <div class="stat-label" style="color:#856404;">Amount Differences</div>
+      <div class="stat-value" style="color:#856404;">{{ diff_count }}</div>
+    </div>
+    {% endif %}
+    <div class="stat-box {% if result.not_in_bank_count > 0 %}stat-warn{% endif %}">
+      <div class="stat-label">Not in Bank</div><div class="stat-value">{{ result.not_in_bank_count }}</div>
+    </div>
+    <div class="stat-box {% if result.not_in_system_count > 0 %}stat-warn{% endif %}">
+      <div class="stat-label">Not in System</div><div class="stat-value">{{ result.not_in_system_count }}</div>
+    </div>
+  </div>
+</div>
+
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+{#  DIFFERENCE BREAKDOWN                                                       #}
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+{% set unmatched = result.rows | rejectattr("status", "equalto", "MATCHED") | list %}
+{% if unmatched %}
+<div class="card">
+  <h3 style="margin-top:0;">
+    What makes up the
+    <span style="color:#dc2626;">₱{{ fmt(result.summary.balance_difference|abs) }}</span>:
+  </h3>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th class="num" style="width:140px;">Amount</th>
+        <th>Particulars</th>
+        <th style="width:260px;">Issue</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in result.rows %}
+      {% if r.status == "NOT IN BANK" %}
+      <tr>
+        <td class="num" style="font-weight:bold;color:{{ '#16a34a' if r.sys_debit else '#dc2626' }};">
+          {{ "+" if r.sys_debit else "−" }}₱{{ fmt(r.sys_debit if r.sys_debit else r.sys_credit) }}
+        </td>
+        <td>
+          {{ r.sys_description }}
+          {% if r.sys_ref %}<span class="muted" style="font-size:11px;"> ({{ r.sys_ref }})</span>{% endif %}
+        </td>
+        <td>
+          {% if r.sys_debit %}
+          <span style="background:#eff6ff;color:#1d4ed8;padding:3px 10px;border-radius:4px;font-size:12px;">📋 Deposit in transit — in books, not in bank</span>
+          {% else %}
+          <span style="background:#fdf4ff;color:#7e22ce;padding:3px 10px;border-radius:4px;font-size:12px;">📋 Outstanding check — in books, not cleared</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% elif r.status == "NOT IN SYSTEM" %}
+      <tr>
+        <td class="num" style="font-weight:bold;color:{{ '#16a34a' if r.bank_credit else '#dc2626' }};">
+          {{ "+" if r.bank_credit else "−" }}₱{{ fmt(r.bank_credit if r.bank_credit else r.bank_debit) }}
+        </td>
+        <td>
+          {{ r.bank_description }}
+          {% if r.bank_ref %}<span class="muted" style="font-size:11px;"> ({{ r.bank_ref }})</span>{% endif %}
+        </td>
+        <td>
+          {% if r.bank_credit %}
+          <span style="background:#f0fdf4;color:#166534;padding:3px 10px;border-radius:4px;font-size:12px;">🏦 Bank credit — not posted in books</span>
+          {% else %}
+          <span style="background:#fff7ed;color:#c2410c;padding:3px 10px;border-radius:4px;font-size:12px;">🏦 Bank charge — not posted in books</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% elif r.status == "MATCHED (DIFFERENCE)" %}
+      <tr>
+        <td class="num" style="font-weight:bold;color:#b45309;">
+          {{ "{:+,.2f}".format(r.difference|float) }}
+        </td>
+        <td>
+          {{ r.sys_description }}
+          {% if r.sys_ref %}<span class="muted" style="font-size:11px;"> ({{ r.sys_ref }})</span>{% endif %}
+        </td>
+        <td>
+          <span style="background:#fffbeb;color:#92400e;padding:3px 10px;border-radius:4px;font-size:12px;">⚠ Amount mismatch — sys vs bank differ</span>
+        </td>
+      </tr>
+      {% endif %}
+    {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr style="border-top:2px solid #e5e7eb;">
+        <td class="num" style="padding-top:10px;font-weight:bold;font-size:15px;color:#dc2626;">
+          {{ fmt(result.summary.balance_difference) }}
+        </td>
+        <td colspan="2" style="padding-top:10px;color:#6b7280;font-size:12px;">Net difference (book − bank adjusted)</td>
+      </tr>
+    </tfoot>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+{#  TRANSACTION DETAILS                                                        #}
+{# ═══════════════════════════════════════════════════════════════════════════ #}
+
+{# Direction 1: System → Bank #}
+<div class="card">
+  <h3 style="margin-top:0;">Direction 1 — Per System → Per Bank
+    <span class="muted" style="font-size:13px;font-weight:normal;"> ({{ result.sys_to_bank|length }} entries)</span>
+  </h3>
+  <p class="muted">System DEBIT → Bank CREDIT &nbsp;|&nbsp; System CREDIT → Bank DEBIT.
+    <strong>NOT IN BANK</strong> rows feed into Deposits in Transit / Outstanding Checks above.</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Status</th>
+        <th>System Date</th><th>System Ref</th><th>System Description</th>
+        <th class="num">Sys Debit</th><th class="num">Sys Credit</th>
+        <th>Bank Date</th><th>Bank Ref</th><th>Bank Description</th>
+        <th class="num">Bank Debit</th><th class="num">Bank Credit</th>
+        <th class="num">Difference</th>
+        <th>Method</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in result.sys_to_bank %}
+      <tr {% if r.status == "NOT IN BANK" %}style="background:#fff1f2;"{% elif r.status == "MATCHED (DIFFERENCE)" %}style="background:#fffbeb;"{% endif %}>
+        <td>
+          {% if r.status == "MATCHED" %}<span class="badge badge-approved">MATCHED</span>
+          {% elif r.status == "MATCHED (DIFFERENCE)" %}<span class="badge" style="background:#fff3cd;color:#856404;border:1px solid #ffc107;">⚠ DIFF</span>
+          {% else %}<span class="badge badge-suspense">{{ r.status }}</span>{% endif %}
+        </td>
+        <td>{{ r.sys_date or '' }}</td>
+        <td>{{ r.sys_ref or '' }}</td>
+        <td>{{ r.sys_description }}</td>
+        <td class="num dr">{{ amt_cell(r.sys_debit) }}</td>
+        <td class="num cr">{{ amt_cell(r.sys_credit) }}</td>
+        <td>{{ r.bank_date or '—' }}</td>
+        <td>{{ r.bank_ref or '—' }}</td>
+        <td>{{ r.bank_description or '—' }}</td>
+        <td class="num dr">{{ amt_cell(r.bank_debit) }}</td>
+        <td class="num cr">{{ amt_cell(r.bank_credit) }}</td>
+        <td class="num">
+          {% if r.difference is not none and r.difference != 0 %}
+            <span style="color:#dc2626;font-weight:bold;">{{ "{:+,.2f}".format(r.difference|float) }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.match_method == "mirror" %}<span class="muted" style="font-size:11px;">mirror</span>
+          {% elif r.match_method == "same-side" %}<span style="color:#d97706;font-size:11px;">same-side</span>
+          {% elif r.match_method == "amount-only" %}<span style="color:#7c3aed;font-size:11px;">amount-only</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="12" class="muted">No system entries.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+{# Direction 2: Bank → System #}
+<div class="card">
+  <h3 style="margin-top:0;">Direction 2 — Per Bank → Per System
+    <span class="muted" style="font-size:13px;font-weight:normal;"> ({{ result.bank_to_sys|length }} entries)</span>
+  </h3>
+  {% if result.bank_to_sys %}
+  <p class="muted">Bank entries with no matching system amount — feed into Bank Credits/Charges Not in Books above.</p>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Status</th>
+        <th>Bank Date</th><th>Bank Ref</th><th>Bank Description</th>
+        <th class="num">Bank Debit</th><th class="num">Bank Credit</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in result.bank_to_sys %}
+      <tr style="background:#fff7ed;">
+        <td><span class="badge badge-unmatched">NOT IN SYSTEM</span></td>
+        <td>{{ r.bank_date or '' }}</td>
+        <td>{{ r.bank_ref or '' }}</td>
+        <td>{{ r.bank_description }}</td>
+        <td class="num dr">{{ amt_cell(r.bank_debit) }}</td>
+        <td class="num cr">{{ amt_cell(r.bank_credit) }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="success">All bank entries matched — no unrecorded bank transactions found.</div>
+  {% endif %}
+</div>
+
+<p><a href="/reconcile/bank-system">← New reconciliation</a></p>
+{% endblock %}

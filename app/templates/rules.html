@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}Classification Rules{% endblock %}
+{% block page_heading %}Classification Rules{% endblock %}
+{% block content %}
+
+{% if message %}<div class="success">{{ message }}</div>{% endif %}
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+{# ── Test tool ─────────────────────────────────────────────────────────────── #}
+<div class="card">
+  <div class="section-head">
+    <div>
+      <h3>Test a Description</h3>
+      <p class="muted">Paste a bank transaction description to see which rule would match first.</p>
+    </div>
+  </div>
+  <form method="post" action="/rules/test" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-top:8px;">
+    <div style="flex:1;min-width:260px;">
+      <input type="text" name="description" value="{{ test_description or '' }}"
+             placeholder="e.g. SENT TO APPLE SUPPLIER COMPANY 1234"
+             style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:.95rem;">
+    </div>
+    <button type="submit" class="button primary">Test Match</button>
+  </form>
+
+  {% if test_description is defined and test_description %}
+  <div style="margin-top:14px;">
+    {% if test_first_hit %}
+    <div class="success" style="margin:0 0 8px;">
+      ✅ <strong>First match:</strong> Rule #{{ test_first_hit.rule.id }} — <em>{{ test_first_hit.rule.pattern }}</em>
+      → <strong>{{ test_first_hit.rule.account_code }} {{ test_first_hit.rule.account_name }}</strong>
+      (priority {{ test_first_hit.rule.priority }})
+    </div>
+    {% else %}
+    <div class="error" style="margin:0 0 8px;">⚠️ No rule matched. This transaction would go to <strong>Suspense</strong>.</div>
+    {% endif %}
+    <details style="margin-top:4px;">
+      <summary class="muted" style="cursor:pointer;font-size:12px;">Show all {{ test_matches|length }} rule results</summary>
+      <table style="margin-top:8px;font-size:12px;">
+        <thead><tr><th>#</th><th>Pattern</th><th>Type</th><th>Account</th><th>Priority</th><th>Match?</th></tr></thead>
+        <tbody>
+        {% for m in test_matches %}
+        <tr style="{% if m.hit %}background:#f0fdf4;{% endif %}">
+          <td>{{ m.rule.id }}</td>
+          <td><code>{{ m.rule.pattern }}</code></td>
+          <td>{{ m.rule.pattern_type }}</td>
+          <td>{{ m.rule.account_code }} {{ m.rule.account_name }}</td>
+          <td>{{ m.rule.priority }}</td>
+          <td>{% if m.hit %}✅{% else %}-{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </details>
+  </div>
+  {% endif %}
+</div>
+
+{# ── Add new rule ───────────────────────────────────────────────────────────── #}
+<div class="card">
+  <div class="section-head"><div><h3>Add New Rule</h3></div></div>
+  <form method="post" action="/rules/create" style="display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin-top:10px;">
+    <div style="grid-column:1/-1;">
+      <label>Pattern <span class="muted">(keyword substring or regex)</span></label>
+      <input type="text" name="pattern" required placeholder="e.g. ^INWARD CLEARING|BDO PAYMENT"
+             style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;">
+    </div>
+    <div>
+      <label>Pattern type</label>
+      <select name="pattern_type" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;">
+        <option value="keyword">Keyword (contains)</option>
+        <option value="regex">Regex</option>
+      </select>
+    </div>
+    <div>
+      <label>Direction</label>
+      <select name="direction" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;">
+        <option value="auto">Auto-detect</option>
+        <option value="debit">Debit (expense)</option>
+        <option value="credit">Credit (income)</option>
+      </select>
+    </div>
+    <div>
+      <label>Target account</label>
+      <select name="target_account_id" required style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;">
+        <option value="">— select —</option>
+        {% for a in accounts %}
+        <option value="{{ a.id }}">{{ a.code }} — {{ a.name }} ({{ a.type }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Priority <span class="muted">(lower = checked first)</span></label>
+      <input type="number" name="priority" value="50" min="1" max="999"
+             style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;">
+    </div>
+    <div style="grid-column:1/-1;">
+      <label>Description <span class="muted">(optional note)</span></label>
+      <input type="text" name="description" placeholder="e.g. Outgoing BDO transfers to suppliers"
+             style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;">
+    </div>
+    <div style="grid-column:1/-1;">
+      <button type="submit" class="button primary">Add Rule</button>
+    </div>
+  </form>
+</div>
+
+{# ── Rules table ────────────────────────────────────────────────────────────── #}
+<div class="card">
+  <div class="section-head">
+    <div>
+      <h3>Active Rules ({{ rules|selectattr("is_active")|list|length }}) &nbsp;
+        <span class="muted" style="font-weight:400;font-size:13px;">{{ rules|length }} total</span>
+      </h3>
+      <p class="muted">Rules are checked in priority order (lowest number first). First match wins.</p>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:40px;">#</th>
+        <th>Pattern</th>
+        <th>Type</th>
+        <th>Target Account</th>
+        <th>Dir</th>
+        <th style="width:60px;">Priority</th>
+        <th>Status</th>
+        <th>Description</th>
+        <th style="width:140px;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in rules %}
+    <tr style="{% if not r.is_active %}opacity:0.45;{% endif %}">
+      <td class="muted">{{ r.id }}</td>
+      <td><code style="font-size:12px;word-break:break-all;">{{ r.pattern }}</code></td>
+      <td><span class="badge">{{ r.pattern_type }}</span></td>
+      <td>{{ r.account_code }} {{ r.account_name }}</td>
+      <td>{{ r.direction }}</td>
+      <td class="num">{{ r.priority }}</td>
+      <td>{% if r.is_active %}<span class="badge success">On</span>{% else %}<span class="badge">Off</span>{% endif %}</td>
+      <td class="muted" style="font-size:12px;">{{ r.description or "" }}</td>
+      <td style="white-space:nowrap;">
+        <details style="display:inline;">
+          <summary class="button" style="padding:3px 10px;font-size:12px;cursor:pointer;">Edit</summary>
+          <div style="position:absolute;z-index:100;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;min-width:320px;box-shadow:0 4px 20px rgba(0,0,0,.12);">
+            <form method="post" action="/rules/{{ r.id }}/update">
+              <label style="font-size:12px;">Pattern</label>
+              <input type="text" name="pattern" value="{{ r.pattern }}" required
+                     style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;margin-bottom:6px;font-size:12px;">
+              <label style="font-size:12px;">Type</label>
+              <select name="pattern_type" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;margin-bottom:6px;font-size:12px;">
+                <option value="keyword" {% if r.pattern_type == 'keyword' %}selected{% endif %}>Keyword</option>
+                <option value="regex" {% if r.pattern_type == 'regex' %}selected{% endif %}>Regex</option>
+              </select>
+              <label style="font-size:12px;">Target account</label>
+              <select name="target_account_id" required style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;margin-bottom:6px;font-size:12px;">
+                {% for a in accounts %}
+                <option value="{{ a.id }}" {% if a.id == r.target_account_id %}selected{% endif %}>{{ a.code }} — {{ a.name }}</option>
+                {% endfor %}
+              </select>
+              <label style="font-size:12px;">Direction</label>
+              <select name="direction" style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;margin-bottom:6px;font-size:12px;">
+                <option value="auto" {% if r.direction == 'auto' %}selected{% endif %}>Auto</option>
+                <option value="debit" {% if r.direction == 'debit' %}selected{% endif %}>Debit</option>
+                <option value="credit" {% if r.direction == 'credit' %}selected{% endif %}>Credit</option>
+              </select>
+              <label style="font-size:12px;">Priority</label>
+              <input type="number" name="priority" value="{{ r.priority }}" min="1" max="999"
+                     style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;margin-bottom:6px;font-size:12px;">
+              <label style="font-size:12px;">Description</label>
+              <input type="text" name="description" value="{{ r.description or '' }}"
+                     style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:5px;margin-bottom:8px;font-size:12px;">
+              <button type="submit" class="button primary" style="font-size:12px;padding:5px 14px;">Save</button>
+            </form>
+          </div>
+        </details>
+        <form method="post" action="/rules/{{ r.id }}/toggle" style="display:inline;">
+          <button type="submit" class="button" style="padding:3px 10px;font-size:12px;">
+            {% if r.is_active %}Disable{% else %}Enable{% endif %}
+          </button>
+        </form>
+        <form method="post" action="/rules/{{ r.id }}/delete" style="display:inline;"
+              onsubmit="return confirm('Delete rule #{{ r.id }}?')">
+          <button type="submit" class="button" style="padding:3px 10px;font-size:12px;background:#fee2e2;color:#b91c1c;border-color:#fca5a5;">Del</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

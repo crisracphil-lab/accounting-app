@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+{% block title %}Calendar{% endblock %}
+{% block page_heading %}Calendar & Reminders{% endblock %}
+{% block content %}
+
+<style nonce="{{ request.state.csp_nonce }}">
+/* ── Calendar page styles ───────────────────────────────────────────── */
+.cal-layout { display: grid; grid-template-columns: 380px 1fr; gap: 1.5rem; align-items: start; margin-bottom: 1.5rem; }
+@media (max-width: 900px) { .cal-layout { grid-template-columns: 1fr; } }
+
+.cal-add-card .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem 1rem; }
+.cal-add-card .form-grid .span-2 { grid-column: span 2; }
+.cal-add-card label { display: flex; flex-direction: column; gap: .25rem; font-size: .82rem; font-weight: 600; color: var(--text-secondary, #555); }
+.cal-add-card input, .cal-add-card select, .cal-add-card textarea { font-size: .9rem; padding: .45rem .6rem; border: 1px solid var(--border, #ddd); border-radius: 6px; background: var(--input-bg, #fff); width: 100%; box-sizing: border-box; }
+
+/* Sync info card */
+.cal-info-card { background: var(--surface-alt, #f8f9fa); border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 1.25rem; }
+
+/* Filter bar */
+.cal-filter { display: flex; gap: .5rem; flex-wrap: wrap; }
+.cal-filter a { padding: .4rem .9rem; border-radius: 6px; font-size: .83rem; font-weight: 600; border: 1px solid var(--border, #ddd); color: var(--text, #333); text-decoration: none; background: var(--surface, #fff); transition: all .15s; }
+.cal-filter a:hover { background: var(--surface-alt, #f5f5f5); }
+.cal-filter a.active { background: var(--color-primary, #1a7f5e); color: #fff; border-color: transparent; }
+
+/* Events list */
+.cal-event-list { display: flex; flex-direction: column; gap: .6rem; }
+
+.cal-event-row { background: var(--surface, #fff); border: 1px solid var(--border, #e5e7eb); border-radius: 10px; overflow: hidden; }
+.cal-event-row.is-done { opacity: .6; }
+.cal-event-row.is-done .cal-event-title { text-decoration: line-through; }
+
+.cal-event-view { display: grid; grid-template-columns: 90px 1fr auto; gap: 0; align-items: stretch; }
+
+.cal-event-date { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: .9rem .5rem; background: var(--surface-alt, #f4f6f8); border-right: 1px solid var(--border, #e5e7eb); min-width: 80px; text-align: center; }
+.cal-event-date .cal-day { font-size: 1.6rem; font-weight: 700; line-height: 1; color: var(--color-primary, #1a7f5e); }
+.cal-event-date .cal-month { font-size: .72rem; font-weight: 600; text-transform: uppercase; color: var(--text-secondary, #888); letter-spacing: .05em; }
+.cal-event-date .cal-year { font-size: .72rem; color: var(--text-secondary, #aaa); }
+.cal-event-date .cal-time { margin-top: .35rem; font-size: .72rem; color: var(--text-secondary, #777); white-space: nowrap; }
+
+.cal-event-body { padding: .75rem 1rem; display: flex; flex-direction: column; gap: .3rem; justify-content: center; }
+.cal-event-title { font-size: .95rem; font-weight: 600; color: var(--text, #1a1a1a); }
+.cal-event-desc { font-size: .82rem; color: var(--text-secondary, #666); white-space: pre-wrap; }
+.cal-event-location { font-size: .78rem; color: var(--text-secondary, #888); }
+.cal-event-location::before { content: "📍 "; }
+
+.cal-event-meta { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-top: .3rem; }
+
+.cal-badge { display: inline-flex; align-items: center; padding: .18rem .55rem; border-radius: 99px; font-size: .72rem; font-weight: 600; letter-spacing: .02em; }
+.cal-badge.shared   { background: #d1fae5; color: #065f46; }
+.cal-badge.private  { background: #e0e7ff; color: #3730a3; }
+.cal-badge.reminder { background: #fef3c7; color: #92400e; }
+.cal-badge.owner    { background: #f3f4f6; color: #374151; }
+.cal-badge.done     { background: #d1fae5; color: #065f46; }
+.cal-badge.open     { background: #fff7ed; color: #9a3412; }
+
+.cal-event-actions { display: flex; flex-direction: column; gap: .4rem; padding: .75rem; justify-content: center; align-items: flex-end; border-left: 1px solid var(--border, #f0f0f0); min-width: 90px; }
+
+/* Edit form (hidden by default) */
+.cal-edit-form { display: none; padding: 1rem; border-top: 1px solid var(--border, #e5e7eb); background: var(--surface-alt, #f9fafb); }
+.cal-edit-form.open { display: block; }
+.cal-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem .9rem; }
+.cal-edit-grid .span-2 { grid-column: span 2; }
+.cal-edit-grid label { display: flex; flex-direction: column; gap: .2rem; font-size: .8rem; font-weight: 600; color: var(--text-secondary, #555); }
+.cal-edit-grid input, .cal-edit-grid select, .cal-edit-grid textarea { font-size: .88rem; padding: .4rem .55rem; border: 1px solid var(--border, #ddd); border-radius: 6px; background: #fff; width: 100%; box-sizing: border-box; }
+.cal-edit-footer { display: flex; justify-content: space-between; align-items: center; margin-top: .75rem; }
+
+.empty-state { text-align: center; padding: 2.5rem; color: var(--text-secondary, #aaa); font-size: .9rem; }
+</style>
+
+<div class="cal-layout">
+    <!-- Add Event form -->
+    <div class="card cal-add-card">
+        <div class="section-header" style="margin-bottom:.75rem">
+            <div>
+                <h2>Add event</h2>
+                <p class="muted" style="margin:0">Shared events are visible to everyone.</p>
+            </div>
+        </div>
+        {% if message %}<div class="alert success" style="margin-bottom:.75rem">{{ message }}</div>{% endif %}
+        <form method="post" action="/calendar/create" class="form-grid">
+            <label class="span-2">Title
+                <input name="title" required placeholder="e.g., VAT filing deadline">
+            </label>
+            <label>Date
+                <input type="date" name="event_date" value="{{ today }}" required>
+            </label>
+            <label>Visibility
+                <select name="visibility">
+                    <option value="shared">Shared</option>
+                    <option value="private">Private</option>
+                </select>
+            </label>
+            <label>Start time
+                <input type="time" name="start_time">
+            </label>
+            <label>End time
+                <input type="time" name="end_time">
+            </label>
+            <label>Reminder (minutes before)
+                <input type="number" name="reminder_minutes" min="0" placeholder="e.g., 60">
+            </label>
+            <label>Location
+                <input name="location" placeholder="Office, Zoom, BIR…">
+            </label>
+            <label class="span-2">Description
+                <textarea name="description" rows="2" placeholder="Notes, document requirements, or responsible person"></textarea>
+            </label>
+            <div class="span-2" style="display:flex;justify-content:flex-end">
+                <button class="button primary" type="submit">Create event</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Sync info -->
+    <div class="cal-info-card">
+        <div style="font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary,#888);margin-bottom:.4rem">Calendar sync</div>
+        <div style="font-size:1.05rem;font-weight:700;margin-bottom:.4rem">Shared via database</div>
+        <p class="muted" style="font-size:.85rem;margin:0 0 .75rem">All shared events are visible to every logged-in staff member after a page refresh. Private events are only visible to their owner and admins.</p>
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+            <span class="cal-badge shared">Shared</span>
+            <span class="cal-badge private">Private</span>
+            <span class="cal-badge reminder">⏰ Reminder</span>
+        </div>
+    </div>
+</div>
+
+<!-- Events list -->
+<div class="card">
+    <div class="section-header" style="margin-bottom:1rem">
+        <div>
+            <h2>Events</h2>
+            <p class="muted" style="margin:0">Private events can be edited by their owner or admin.</p>
+        </div>
+        <div class="cal-filter">
+            <a href="/calendar?view=upcoming" class="{% if view == 'upcoming' %}active{% endif %}">Upcoming</a>
+            <a href="/calendar?view=shared"   class="{% if view == 'shared'   %}active{% endif %}">Shared</a>
+            <a href="/calendar?view=private"  class="{% if view == 'private'  %}active{% endif %}">Private</a>
+            <a href="/calendar?view=all"      class="{% if view == 'all'      %}active{% endif %}">All visible</a>
+        </div>
+    </div>
+
+    <div class="cal-event-list">
+    {% for e in rows %}
+    {% set done = e.is_done %}
+    <div class="cal-event-row {% if done %}is-done{% endif %}">
+
+        <!-- Read view -->
+        <div class="cal-event-view">
+            <!-- Date block -->
+            <div class="cal-event-date">
+                {% set parts = e.event_date.split('-') if e.event_date else [] %}
+                {% if parts|length == 3 %}
+                <div class="cal-day">{{ parts[2] }}</div>
+                <div class="cal-month">{{ ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parts[1]|int - 1] }}</div>
+                <div class="cal-year">{{ parts[0] }}</div>
+                {% else %}
+                <div class="cal-day">—</div>
+                {% endif %}
+                {% if e.start_time %}
+                <div class="cal-time">{{ e.start_time[:5] }}{% if e.end_time %} – {{ e.end_time[:5] }}{% endif %}</div>
+                {% endif %}
+            </div>
+
+            <!-- Body -->
+            <div class="cal-event-body">
+                <div class="cal-event-title">{{ e.title }}</div>
+                {% if e.description %}<div class="cal-event-desc">{{ e.description }}</div>{% endif %}
+                {% if e.location %}<div class="cal-event-location">{{ e.location }}</div>{% endif %}
+                <div class="cal-event-meta">
+                    <span class="cal-badge {{ e.visibility }}">{{ e.visibility | capitalize }}</span>
+                    {% if e.reminder_minutes is not none and e.reminder_minutes != '' %}
+                    <span class="cal-badge reminder">⏰ {{ e.reminder_minutes }} min</span>
+                    {% endif %}
+                    <span class="cal-badge owner">{{ e.full_name or e.username }}</span>
+                    {% if done %}
+                    <span class="cal-badge done">✓ Done</span>
+                    {% else %}
+                    <span class="cal-badge open">Open</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="cal-event-actions">
+                <a href="/calendar?view={{ view }}&amp;edit={{ e.id }}" class="button small">Edit</a>
+                <form method="post" action="/calendar/{{ e.id }}/delete" data-confirm-delete>
+                    <button class="button small danger" type="submit">Delete</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Edit form (server-side open when ?edit=ID matches) -->
+        <div class="cal-edit-form{% if edit_id is not none and edit_id == e.id %} open{% endif %}" id="edit-{{ e.id }}">
+            <form method="post" action="/calendar/{{ e.id }}/update">
+                <div class="cal-edit-grid">
+                    <label class="span-2">Title
+                        <input name="title" value="{{ e.title }}" required>
+                    </label>
+                    <label>Date
+                        <input type="date" name="event_date" value="{{ e.event_date }}" required>
+                    </label>
+                    <label>Visibility
+                        <select name="visibility">
+                            <option value="shared"  {% if e.visibility == 'shared'  %}selected{% endif %}>Shared</option>
+                            <option value="private" {% if e.visibility == 'private' %}selected{% endif %}>Private</option>
+                        </select>
+                    </label>
+                    <label>Start time
+                        <input type="time" name="start_time" value="{{ e.start_time or '' }}">
+                    </label>
+                    <label>End time
+                        <input type="time" name="end_time" value="{{ e.end_time or '' }}">
+                    </label>
+                    <label>Reminder (min)
+                        <input type="number" min="0" name="reminder_minutes" value="{{ e.reminder_minutes if e.reminder_minutes is not none else '' }}">
+                    </label>
+                    <label>Location
+                        <input name="location" value="{{ e.location or '' }}" placeholder="Location">
+                    </label>
+                    <label class="span-2">Description
+                        <textarea name="description" rows="2">{{ e.description or '' }}</textarea>
+                    </label>
+                    <label>Status
+                        <select name="is_done">
+                            <option value="0" {% if not done %}selected{% endif %}>Open</option>
+                            <option value="1" {% if done     %}selected{% endif %}>Done</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="cal-edit-footer">
+                    <a href="/calendar?view={{ view }}" class="button small">Cancel</a>
+                    <button class="button primary small" type="submit">Save changes</button>
+                </div>
+            </form>
+        </div>
+
+    </div>
+    {% else %}
+    <div class="empty-state">No calendar events found for this filter.</div>
+    {% endfor %}
+    </div>
+</div>
+
+<script nonce="{{ request.state.csp_nonce }}">
+/* Open edit form from URL ?edit=ID and scroll to it */
+(function() {
+    var m = window.location.search.match(/[?&]edit=(\d+)/);
+    if (m) {
+        var el = document.getElementById('edit-' + m[1]);
+        if (el) {
+            el.classList.add('open');
+            /* scroll the parent event card into view */
+            var target = el.closest('.cal-event') || el;
+            setTimeout(function() {
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 80);
+        }
+    }
+})();
+
+/* Delete confirmation — event delegation (CSP-safe nonce script) */
+document.addEventListener('click', function(ev) {
+    var delForm = ev.target.closest('[data-confirm-delete]');
+    if (delForm && ev.target.type === 'submit') {
+        if (!confirm('Delete this event?')) ev.preventDefault();
+    }
+});
+</script>
+{% endblock %}

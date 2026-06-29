@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}BookPoint - Reconciliation Workspace{% endblock %}
+{% block page_heading %}Reconciliation Workspace{% endblock %}
+{% block content %}
+<section class="hero-panel compact">
+  <div>
+    <div class="eyebrow">General file reconciliation</div>
+    <h2>Compare any two real Excel or CSV files.</h2>
+    <p>Use this workspace for bank vs system, raw report vs system, subsidiary ledger vs trial balance, collections vs deposits, tax report vs GL, or any other two-file reconciliation.</p>
+  </div>
+</section>
+
+<div class="card">
+  <div class="section-head">
+    <div>
+      <h3>Upload reconciliation files</h3>
+      <p class="muted">Supported formats: .xlsx, .xlsm, .xls, .csv. BookPoint does not use mock data or dummy fallback rows. Invalid files raise an error.</p>
+    </div>
+  </div>
+  <form action="/reconciliation-workspace" method="post" enctype="multipart/form-data" class="form-grid two">
+    <label>Reconciliation type
+      <select name="reconciliation_type" required>
+        <option value="system_vs_raw">General File A vs File B</option>
+        <option value="bank_vs_system">Statement/payment file vs Per-system export</option>
+        <option value="bank_vs_raw">Per-system export vs Raw Excel/CSV file</option>
+        <option value="system_vs_raw">Other two-file reconciliation</option>
+      </select>
+    </label>
+    <div class="muted" style="align-self:end;">Choose the closest purpose. The same matching engine is used for all real files.</div>
+    <label>File A / Source file
+      <input type="file" name="bank_file" accept=".xlsx,.xlsm,.xls,.csv" required>
+    </label>
+    <label>File B / Comparison file
+      <input type="file" name="system_file" accept=".xlsx,.xlsm,.xls,.csv" required>
+    </label>
+    <div class="form-actions"><button class="button primary" type="submit">Run reconciliation</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="section-head"><h3>Recent reconciliation runs</h3></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>ID</th><th>Type</th><th>File A</th><th>File B</th><th class="num">Items</th><th class="num">Matched</th><th>Created</th></tr></thead>
+      <tbody>{% for r in runs %}<tr>
+        <td><a href="/reconciliation-workspace/{{ r.id }}">#{{ r.id }}</a></td>
+        <td><span class="badge">{{ (r.reconciliation_type or 'general_file_reconciliation').replace('_',' ') }}</span></td>
+        <td>{{ r.bank_filename }}</td><td>{{ r.system_filename }}</td>
+        <td class="num">{{ r.item_count }}</td><td class="num">{{ r.matched_count }}</td><td>{{ r.created_at }}</td>
+      </tr>{% else %}<tr><td colspan="7" class="muted">No reconciliations yet.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="section-head"><h3>Accepted file structure</h3></div>
+  <p class="muted">Each file must contain a date, a description or reference, and either one amount column or debit/credit columns. BookPoint detects common headers such as Date, Transaction Date, Posting Date, Value Date, Description, Particulars, Remarks, Payee, Supplier, Account Title, Reference No, Voucher No, Invoice No, Debit, Credit, Withdrawal, Deposit, Amount, Payment Amount, Invoice Amount, System Amount, and Balance.</p>
+</div>
+{% endblock %}

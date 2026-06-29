@@ -1,0 +1,331 @@
+{% extends "base.html" %}
+{% block title %}BookPoint - Requests{% endblock %}
+{% block page_heading %}Payment & Reimbursement Requests{% endblock %}
+{% block content %}
+
+{# ── KPI summary cards ─────────────────────────────────────────────────────── #}
+{% if is_accounting or is_operations_manager %}
+<div class="card" style="margin-bottom:18px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+    <span style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Overview — all-time by status</span>
+  </div>
+  {% set kpi_items = [
+    ('submitted',   'Submitted',   'blue',   '📥'),
+    ('for_review',  'For Review',  'amber',  '🔍'),
+    ('for_process', 'For Process', 'amber',  '⚙️'),
+    ('approved',    'Approved',    'teal',   '✅'),
+    ('paid',        'Paid',        'emerald','💸'),
+    ('rejected',    'Rejected',    'rose',   '❌'),
+  ] %}
+  {% set _bg = {'blue':'rgba(59,130,246,.13)','amber':'rgba(245,158,11,.13)','teal':'rgba(20,184,166,.13)','emerald':'rgba(16,185,129,.13)','rose':'rgba(244,63,94,.13)'} %}
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
+    {% for st, label, color, icon in kpi_items %}
+    <div style="display:flex;flex-direction:row;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface)">
+      <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;min-width:32px;border-radius:7px;font-size:15px;background:{{ _bg[color] }}">{{ icon }}</span>
+      <span style="display:flex;flex-direction:column;min-width:0">
+        <span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">{{ label }}</span>
+        <span style="font-size:18px;font-weight:800;line-height:1.1">{{ stats.get(st, 0) }}</span>
+        {% if stats_total.get(st) %}<span style="font-size:10px;color:var(--muted)">{{ stats_total[st]|money }}</span>{% endif %}
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+
+  {# Pending pipeline total #}
+  {% if pending_total or paid_total %}
+  <div style="display:flex;gap:24px;margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+    <div>
+      <span class="muted small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:700">Pipeline (pending → approved)</span>
+      <span style="font-size:20px;font-weight:800;margin-left:10px;color:var(--accent)">{{ pending_total|money }}</span>
+    </div>
+    <div>
+      <span class="muted small" style="text-transform:uppercase;letter-spacing:.06em;font-weight:700">Total paid</span>
+      <span style="font-size:20px;font-weight:800;margin-left:10px;color:#059669">{{ paid_total|money }}</span>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ── Filter + Export bar ───────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:18px">
+
+  {# ── Filter form ── #}
+  <form method="get" action="/requests" id="filter-form">
+    {% if selected_company_id %}<input type="hidden" name="company_id" value="{{ selected_company_id }}">{% endif %}
+    <input type="hidden" name="start" id="filter-start" value="{{ date_start }}">
+    <input type="hidden" name="end"   id="filter-end"   value="{{ date_end }}">
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+
+      {# Period quick-select #}
+      <div style="flex:1;min-width:180px">
+        <div class="muted small" style="font-weight:600;margin-bottom:4px">Period</div>
+        <select id="period-select" onchange="onPeriodChange(this.value)" style="width:100%">
+          <option value="all">All time</option>
+          <option value="week">This week</option>
+          <option value="month">This month</option>
+          <option value="last">Last month</option>
+          <option value="custom">Custom range…</option>
+        </select>
+      </div>
+
+      {# Status #}
+      <div style="flex:1;min-width:160px">
+        <div class="muted small" style="font-weight:600;margin-bottom:4px">Status</div>
+        <select name="status" style="width:100%">
+          <option value="">All statuses</option>
+          {% for st in ['submitted','for_review','for_process','approved','paid','rejected','cancelled'] %}
+          <option value="{{ st }}" {% if status==st %}selected{% endif %}>{{ st.replace('_',' ')|title }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      {# Custom date range — hidden unless "Custom range" selected #}
+      <div id="custom-range" style="display:none;flex:2;min-width:300px">
+        <div class="muted small" style="font-weight:600;margin-bottom:4px">Date range</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="date" id="custom-start" onchange="document.getElementById('filter-start').value=this.value" style="flex:1;font-size:13px;padding:6px 8px">
+          <span class="muted small">to</span>
+          <input type="date" id="custom-end" onchange="document.getElementById('filter-end').value=this.value" style="flex:1;font-size:13px;padding:6px 8px">
+        </div>
+      </div>
+
+      <div style="display:flex;gap:6px;align-items:flex-end;padding-bottom:1px">
+        <button class="button primary" type="submit">Apply</button>
+        <a class="button secondary" href="/requests{% if selected_company_id %}?company_id={{ selected_company_id }}{% endif %}" style="font-size:13px">Clear</a>
+      </div>
+    </div>
+  </form>
+
+  {# ── Export row ── #}
+  {% if is_accounting or is_operations_manager %}
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);align-items:flex-end">
+    <span class="muted small" style="font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding-bottom:2px">Export</span>
+
+    <form method="get" action="/requests/export.xlsx" style="display:flex;gap:6px;align-items:flex-end">
+      <input type="hidden" name="company_id" value="{{ selected_company_id }}">
+      <select name="month" style="font-size:13px">
+        {% for opt in export_month_options %}<option value="{{ opt.value }}" {% if opt.value == export_month %}selected{% endif %}>{{ opt.label }}</option>{% endfor %}
+      </select>
+      <button class="button secondary" type="submit" style="font-size:13px">↓ Monthly</button>
+    </form>
+
+    <form method="get" action="/requests/export-range.xlsx" style="display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap">
+      <input type="hidden" name="company_id" value="{{ selected_company_id }}">
+      <input type="hidden" name="start" id="export-start" value="{{ date_start }}">
+      <input type="hidden" name="end"   id="export-end"   value="{{ date_end }}">
+      <div>
+        <div class="muted small" style="font-weight:600;margin-bottom:3px;font-size:11px">From</div>
+        <input type="date" id="exp-from" onchange="document.getElementById('export-start').value=this.value" value="{{ date_start }}" style="font-size:13px;padding:5px 8px">
+      </div>
+      <div>
+        <div class="muted small" style="font-weight:600;margin-bottom:3px;font-size:11px">To</div>
+        <input type="date" id="exp-to" onchange="document.getElementById('export-end').value=this.value" value="{{ date_end }}" style="font-size:13px;padding:5px 8px">
+      </div>
+      <button class="button secondary" type="submit" style="font-size:13px">↓ Custom</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<script nonce="{{ request.state.csp_nonce }}">
+(function () {
+  // ── Period select logic ───────────────────────────────────────────────────
+  function isoDate(d) {
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2,'0') + '-' +
+      String(d.getDate()).padStart(2,'0');
+  }
+
+  function onPeriodChange(val) {
+    var today = new Date();
+    var s = '', e = '';
+    var customDiv = document.getElementById('custom-range');
+
+    if (val === 'week') {
+      var dow = today.getDay() === 0 ? 6 : today.getDay() - 1;
+      var mon = new Date(today); mon.setDate(today.getDate() - dow);
+      var sun = new Date(mon);  sun.setDate(mon.getDate() + 6);
+      s = isoDate(mon); e = isoDate(sun);
+    } else if (val === 'month') {
+      s = isoDate(new Date(today.getFullYear(), today.getMonth(), 1));
+      e = isoDate(new Date(today.getFullYear(), today.getMonth() + 1, 0));
+    } else if (val === 'last') {
+      s = isoDate(new Date(today.getFullYear(), today.getMonth() - 1, 1));
+      e = isoDate(new Date(today.getFullYear(), today.getMonth(), 0));
+    } else if (val === 'custom') {
+      customDiv.style.display = '';
+      return;
+    }
+
+    customDiv.style.display = 'none';
+    document.getElementById('filter-start').value = s;
+    document.getElementById('filter-end').value   = e;
+  }
+
+  window.onPeriodChange = onPeriodChange;
+
+  // Init on load
+  var sel = document.getElementById('period-select');
+  var startVal = document.getElementById('filter-start').value;
+  var endVal   = document.getElementById('filter-end').value;
+
+  if (startVal || endVal) {
+    // Determine if it's a known preset or custom
+    var today = new Date();
+    function isoOf(y,m,d){ return new Date(y,m,d); }
+    var dow = today.getDay() === 0 ? 6 : today.getDay() - 1;
+    var wMon = new Date(today); wMon.setDate(today.getDate()-dow);
+    var wSun = new Date(wMon); wSun.setDate(wMon.getDate()+6);
+
+    var presets = {
+      week:  [isoDate(wMon), isoDate(wSun)],
+      month: [isoDate(new Date(today.getFullYear(),today.getMonth(),1)),
+              isoDate(new Date(today.getFullYear(),today.getMonth()+1,0))],
+      last:  [isoDate(new Date(today.getFullYear(),today.getMonth()-1,1)),
+              isoDate(new Date(today.getFullYear(),today.getMonth(),0))],
+    };
+
+    var matched = false;
+    for (var key in presets) {
+      if (startVal === presets[key][0] && endVal === presets[key][1]) {
+        sel.value = key; matched = true; break;
+      }
+    }
+    if (!matched) {
+      sel.value = 'custom';
+      document.getElementById('custom-range').style.display = '';
+      var cs = document.getElementById('custom-start');
+      var ce = document.getElementById('custom-end');
+      if (cs) cs.value = startVal;
+      if (ce) ce.value = endVal;
+    }
+  }
+})();
+</script>
+
+{# ── By-account summary (visible when filtered or for accounting) ──────────── #}
+{% if account_summary and (date_start or date_end) %}
+<div class="card" style="margin-bottom:18px">
+  <div class="section-head"><div><h3>Expenses by account — filtered period</h3><p class="muted">Active requests only (excludes cancelled & rejected).</p></div></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Account</th><th class="num">Amount</th><th class="num">Requests</th></tr></thead>
+      <tbody>
+        {% set ns = namespace(total=0) %}
+        {% for title, data in account_summary %}
+        {% set ns.total = ns.total + data.total %}
+        <tr>
+          <td>{% if data.code %}<span class="badge" style="margin-right:6px">{{ data.code }}</span>{% endif %}{{ title }}</td>
+          <td class="num">{{ data.total|money }}</td>
+          <td class="num">{{ data.count }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="font-weight:700;border-top:2px solid var(--border)">
+          <td>Total</td>
+          <td class="num">{{ ns.total|money }}</td>
+          <td class="num">{{ account_summary|sum(attribute='1.count') }}</td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Company tabs for ops managers ─────────────────────────────────────────── #}
+{% if is_operations_manager and not is_accounting and ops_companies %}
+<div class="status-strip company-tabs">
+  {% for c in ops_companies %}
+    <a class="status-pill {% if selected_company_id == c.id %}active{% endif %}" href="/requests?company_id={{ c.id }}{% if status %}&status={{ status }}{% endif %}{% if date_start %}&start={{ date_start }}{% endif %}{% if date_end %}&end={{ date_end }}{% endif %}">{{ c.name }}</a>
+  {% endfor %}
+</div>
+<p class="muted small">General Manager approval view shows only reimbursements above PHP 50,000 for the selected company.</p>
+{% endif %}
+
+{# ── Status filter pills ────────────────────────────────────────────────────── #}
+<div class="status-strip">
+  <a class="status-pill {% if not status %}active{% endif %}" href="/requests?{% if selected_company_id %}company_id={{ selected_company_id }}&{% endif %}{% if date_start %}start={{ date_start }}&{% endif %}{% if date_end %}end={{ date_end }}{% endif %}">All</a>
+  {% for st in ['submitted','for_review','for_process','approved','paid','rejected','cancelled'] %}
+    <a class="status-pill {% if status==st %}active{% endif %}" href="/requests?status={{ st }}{% if selected_company_id %}&company_id={{ selected_company_id }}{% endif %}{% if date_start %}&start={{ date_start }}{% endif %}{% if date_end %}&end={{ date_end }}{% endif %}">{{ st.replace('_',' ') }} {{ stats.get(st, 0) }}</a>
+  {% endfor %}
+</div>
+
+{% if message %}<div class="alert success">{{ message }}</div>{% endif %}
+<a class="button primary" href="/requests/new" style="display:inline-block;margin-bottom:12px">+ New request</a>
+
+{# ── Requests table ────────────────────────────────────────────────────────── #}
+<div class="card">
+  <div class="section-head">
+    <div>
+      <h3>{% if is_operations_manager and not is_accounting %}GM approvals{% elif is_accounting %}Company requests{% else %}My requests{% endif %}
+        {% if date_start or date_end %}<span class="muted small" style="font-weight:400;margin-left:8px">{{ date_start or '—' }} to {{ date_end or '—' }}</span>{% endif %}
+      </h3>
+      <p class="muted">{{ requests|length }} result{% if requests|length != 1 %}s{% endif %} shown</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Date</th>
+          <th>Type</th>
+          <th>Requester</th>
+          <th>Department</th>
+          <th>Payee</th>
+          <th>Description</th>
+          <th>Account Title</th>
+          <th class="num">Amount</th>
+          <th>Due</th>
+          <th>Status</th>
+          <th>Files</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in requests %}
+      <tr>
+        <td><a href="/requests/{{ r.id }}">#{{ r.id }}</a></td>
+        <td class="muted small" style="white-space:nowrap">{{ (r.created_at or '')[:10] }}</td>
+        <td>{{ r.request_type.replace('_',' ')|title }}</td>
+        <td>{{ r.full_name or r.username }}</td>
+        <td>{{ r.department_name or '—' }}</td>
+        <td><strong>{{ r.payee_name }}</strong></td>
+        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ r.description }}">{{ r.description }}</td>
+        <td>
+          {% if r.account_code %}
+            <span class="badge">{{ r.account_code }}</span>
+            <span class="muted small" style="display:block;font-size:11px">{{ r.account_title }}</span>
+          {% else %}
+            <span class="muted small">—</span>
+          {% endif %}
+        </td>
+        <td class="num">{{ r.amount|money }}</td>
+        <td class="muted small" style="white-space:nowrap">{{ r.due_date|english_date }}</td>
+        <td>
+          <span class="badge badge-{{ r.status }}">{{ r.status.replace('_',' ') }}</span>
+          {% if r.request_type == 'reimbursement' and r.amount|float > 50000 %}<br><span class="badge warning" style="font-size:10px">GM</span>{% endif %}
+          {% if duplicate_request_ids is defined and r.id in duplicate_request_ids %}<br><span class="badge" style="font-size:10px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5">⚠ duplicate</span>{% endif %}
+        </td>
+        <td class="num">{{ r.attachment_count }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="12" class="muted" style="text-align:center;padding:32px">No requests found for the selected filters.</td></tr>
+      {% endfor %}
+      </tbody>
+      {% if requests %}
+      <tfoot>
+        <tr style="font-weight:700;border-top:2px solid var(--border)">
+          <td colspan="8" style="text-align:right;padding-right:12px">Total (excl. cancelled/rejected)</td>
+          <td class="num">{{ requests_total|money }}</td>
+          <td colspan="3"></td>
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Closing of Books{% endblock %}
+{% block content %}
+<h2>Closing of Books</h2>
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<div class="card">
+    <h3 style="margin-top:0;">Start a new AI-assisted closing run</h3>
+    <p>Upload both the financial statements and the subsidiary ledger. BookPoint will read the FS account rows and Inc./Dec. column, compare them to the subsidiary ledger, then write the generated material movement reasoning into the Remarks/last column of the financial statement export, using the subsidiary ledger as the basis.</p>
+    <form method="post" action="/closing/upload" enctype="multipart/form-data">
+        <div style="display:grid; grid-template-columns:240px 1fr; gap:12px; align-items:center; margin-bottom:16px;">
+            <label>Financial statements:</label>
+            <input type="file" name="financial_statement_file" accept=".xls,.xlsx,.xlsm" required>
+            <label>Subsidiary ledger:</label>
+            <input type="file" name="subsidiary_ledger_file" accept=".xls,.xlsx,.xlsm" required>
+            <label>Period label:</label>
+            <input type="text" name="period_label" placeholder="e.g. March 2026 close" required>
+            <label>Materiality threshold (PHP):</label>
+            <input type="text" name="threshold" value="100000" required>
+        </div>
+        <button type="submit">Run closing analysis</button>
+    </form>
+    <p class="muted" style="margin-bottom:0;">No mock data or fallback dummy data is used. If either workbook cannot be parsed, the app will show an error so the file format can be corrected.</p>
+</div>
+
+{% if runs %}
+<div class="card">
+    <h3 style="margin-top:0;">Previous closing runs</h3>
+    <table>
+        <thead><tr><th>Run #</th><th>Period</th><th>Threshold</th><th>Accounts</th><th>Flagged</th><th>Status</th><th>Created</th></tr></thead>
+        <tbody>
+        {% for r in runs %}
+            <tr>
+                <td><a href="/closing/{{ r.id }}">#{{ r.id }}</a></td>
+                <td>{{ r.period_label }}</td>
+                <td class="num">{{ "%.2f"|format(r.threshold|float) }}</td>
+                <td class="num">{{ r.account_count }}</td>
+                <td class="num">{{ r.flagged_count }}</td>
+                <td><span class="badge {% if r.status == 'completed' %}badge-approved{% else %}badge-draft{% endif %}">{{ r.status }}</span></td>
+                <td>{{ r.created_at }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

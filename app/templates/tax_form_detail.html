@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}{{ summary.form.code }}{% endblock %}
+{% block content %}
+<h2>{{ summary.form.code }} — {{ summary.form.name }}</h2>
+<p><a href="/taxes?year={{ summary.year }}&period_index={{ summary.period_index }}">← back to forms</a></p>
+
+<div class="card">
+    <p><strong>Frequency:</strong> {{ summary.form.frequency }}<br>
+       <strong>Period:</strong> {{ summary.period_start }} to {{ summary.period_end }}<br>
+       <strong>Due:</strong> {{ summary.due }}<br>
+       <strong>Description:</strong> {{ summary.form.description }}</p>
+
+    {% if summary.estimated_filing_amount is not none %}
+    <p style="font-size:18px;"><strong>Estimated filing amount:</strong> ₱{{ "%.2f"|format(summary.estimated_filing_amount) }}</p>
+    {% endif %}
+
+    {% for note in summary.notes %}
+    <p class="muted">{{ note }}</p>
+    {% endfor %}
+</div>
+
+<div class="card">
+    <h3 style="margin-top:0;">Filing status</h3>
+    {% if filing %}
+    <p><strong>Current status:</strong>
+       {% if filing.status == "filed" %}<span class="badge badge-approved">FILED</span>
+       {% elif filing.status == "in_process" %}<span class="badge badge-draft">IN PROCESS</span>
+       {% else %}<span class="badge badge-unmatched">NOT YET STARTED</span>{% endif %}
+       {% if filing.filed_date %} on {{ filing.filed_date }}{% endif %}
+    </p>
+    {% if filing.reference_number %}<p><strong>BIR reference:</strong> {{ filing.reference_number }}</p>{% endif %}
+    {% if filing.notes %}<p><strong>Notes:</strong> {{ filing.notes }}</p>{% endif %}
+    {% else %}
+    <p class="muted">No filing record yet — defaults to "not yet started".</p>
+    {% endif %}
+
+    <form method="post" action="/taxes/{{ summary.form.code }}/status" style="margin-top:12px;">
+        <input type="hidden" name="year" value="{{ summary.year }}">
+        <input type="hidden" name="period_index" value="{{ summary.period_index }}">
+        <div style="display:grid; grid-template-columns:140px 1fr; gap:8px; align-items:center; max-width:600px;">
+            <label>Status:</label>
+            <select name="status">
+                <option value="not_started" {% if filing and filing.status=="not_started" %}selected{% endif %}>Not yet started</option>
+                <option value="in_process"  {% if filing and filing.status=="in_process" %}selected{% endif %}>In process</option>
+                <option value="filed"       {% if filing and filing.status=="filed" %}selected{% endif %}>Filed</option>
+            </select>
+            <label>BIR reference:</label>
+            <input type="text" name="reference_number" value="{{ filing.reference_number if filing else '' }}" placeholder="e.g. confirmation no.">
+            <label>Notes:</label>
+            <input type="text" name="notes" value="{{ filing.notes if filing else '' }}" placeholder="optional">
+        </div>
+        <button type="submit" style="margin-top:8px;">Update status</button>
+    </form>
+</div>
+
+{% if summary.accounts %}
+<div class="card">
+    <h3 style="margin-top:0;">Account balances driving this form</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Account</th><th>Type</th>
+                <th class="num">Opening (signed Dr-Cr)</th>
+                <th class="num">Period Dr</th>
+                <th class="num">Period Cr</th>
+                <th class="num">Closing (signed Dr-Cr)</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for a in summary.accounts %}
+            <tr>
+                <td><strong>{{ a.account_code }}</strong> {{ a.account_name }}</td>
+                <td>{{ a.natural_side }}</td>
+                <td class="num">{{ "%.2f"|format(a.opening_balance) }}</td>
+                <td class="num dr">{{ "%.2f"|format(a.period_debit) }}</td>
+                <td class="num cr">{{ "%.2f"|format(a.period_credit) }}</td>
+                <td class="num">{{ "%.2f"|format(a.closing_balance) }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

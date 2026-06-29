@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Transaction {{ tx.transaction_id }}{% endblock %}
+{% block content %}
+<h2>Transaction {{ tx.transaction_id }}</h2>
+<p><a href="/transactions">&larr; back to transactions</a></p>
+
+<div class="card">
+    <table>
+        <tr><th>Date</th><td>{{ tx.transaction_date }}</td></tr>
+        <tr><th>Posted</th><td>{{ tx.posted_date or "-" }}</td></tr>
+        <tr><th>Description</th><td>{{ tx.description }}</td></tr>
+        <tr><th>Counterparty</th><td>{{ tx.counterparty_name or "-" }}</td></tr>
+        <tr><th>Debit</th><td class="num dr">{{ tx.debit_amount|money }}</td></tr>
+        <tr><th>Credit</th><td class="num cr">{{ tx.credit_amount|money }}</td></tr>
+        <tr><th>Reference</th><td>{{ tx.reference_number or "-" }}</td></tr>
+        <tr><th>Check #</th><td>{{ tx.check_number or "-" }}</td></tr>
+        <tr><th>Remarks</th><td>{{ tx.remarks or "-" }}</td></tr>
+        <tr><th>Branch</th><td>{{ tx.branch or "-" }}</td></tr>
+        <tr><th>Biller</th><td>{{ tx.biller_name or "-" }}</td></tr>
+        <tr><th>Source file</th><td>{{ tx.source_file }}</td></tr>
+        <tr><th>Supplier</th><td>{{ tx.supplier_name or "(unmatched)" }}
+            {% if tx.supplier_match_confidence %}
+                <span class="muted">— confidence {{ "%.0f"|format(tx.supplier_match_confidence * 100) }}%, {{ tx.supplier_match_reason }}</span>
+            {% endif %}</td></tr>
+        <tr><th>Classification</th><td>{{ tx.classification or "-" }}</td></tr>
+        <tr><th>Status</th><td>{{ tx.status }}</td></tr>
+    </table>
+</div>
+
+{% if je %}
+<div class="card">
+    <h3 style="margin-top:0;">Generated journal entry #{{ je.id }}
+        <span class="badge badge-{{ je.status }}">{{ je.status }}</span></h3>
+    <p>{{ je.reference }}<br>
+       <span class="muted">Confidence {{ "%.0f"|format((je.confidence_score or 0) * 100) }}% · method: {{ je.classification_method }}</span></p>
+    <table>
+        <thead><tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead>
+        <tbody>
+        {% set ns = namespace(td=0, tc=0) %}
+        {% for l in je_lines %}
+            <tr>
+                <td>{{ l.account_code }} — {{ l.account_name }}</td>
+                <td class="num dr">{{ l.debit|money if l.debit and l.debit != "0" else "" }}</td>
+                <td class="num cr">{{ l.credit|money if l.credit and l.credit != "0" else "" }}</td>
+            </tr>
+            {% set ns.td = ns.td + (l.debit|float) %}
+            {% set ns.tc = ns.tc + (l.credit|float) %}
+        {% endfor %}
+            <tr style="font-weight:600; border-top: 2px solid #1a3a52;">
+                <td>TOTAL</td>
+                <td class="num dr">{{ "%.2f"|format(ns.td) }}</td>
+                <td class="num cr">{{ "%.2f"|format(ns.tc) }}</td>
+            </tr>
+        </tbody>
+    </table>
+    {% if je.status == "draft" %}
+    <form method="post" action="/journal-entries/{{ je.id }}/approve" style="margin-top: 12px;">
+        <button type="submit">Approve this JE</button>
+    </form>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

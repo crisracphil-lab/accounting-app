@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Detailed Reconciliation Result{% endblock %}
+
+{% macro render_table(rows) %}
+<table>
+    <thead>
+        <tr>
+            <th>Week</th><th>Outlet Code</th><th>Outlet / Description</th>
+            <th>Account Type</th><th class="num">GGR Amount</th>
+            <th>Expected Side</th>
+            <th class="num">System Debit</th><th class="num">System Credit</th>
+            <th>Actual Side</th><th>Discrepancy Type</th>
+            <th class="num">Difference</th>
+            <th class="num">Nearest System Amt</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for r in rows %}
+        <tr {% if r.discrepancy_type == "IN SYSTEM ONLY" %}style="background:#fff7ed;"{% endif %}>
+            <td>{{ r.week_label }}</td>
+            <td>{{ r.outlet_code }}</td>
+            <td>{{ r.outlet_name }}</td>
+            <td>{{ r.account_type }}</td>
+            <td class="num">{% if r.ggr_amount %}{{ "%.2f"|format(r.ggr_amount) }}{% endif %}</td>
+            <td>{{ r.expected_side }}</td>
+            <td class="num dr">{% if r.system_debit %}{{ "%.2f"|format(r.system_debit) }}{% endif %}</td>
+            <td class="num cr">{% if r.system_credit %}{{ "%.2f"|format(r.system_credit) }}{% endif %}</td>
+            <td>{{ r.actual_side }}</td>
+            <td>
+                {% if r.discrepancy_type == "MATCHED" %}<span class="badge badge-approved">MATCHED</span>
+                {% elif r.discrepancy_type == "WRONG SIDE" %}<span class="badge badge-unmatched">WRONG SIDE</span>
+                {% elif r.discrepancy_type == "AMOUNT DISCREPANCY" %}<span class="badge badge-warning">AMOUNT DISCREPANCY</span>
+                {% elif r.discrepancy_type == "IN SYSTEM ONLY" %}<span class="badge badge-suspense">IN SYSTEM ONLY</span>
+                {% else %}<span class="badge badge-suspense">{{ r.discrepancy_type }}</span>{% endif %}
+            </td>
+            <td class="num">
+                {% if r.amount_difference is not none and r.amount_difference != 0 %}
+                    <span style="color:#dc2626;">{{ "%+.2f"|format(r.amount_difference) }}</span>
+                {% endif %}
+            </td>
+            <td class="num">
+                {% if r.discrepancy_type == "MISSING ENTRY IN SYSTEM" and r.nearest_system_amount is not none %}
+                    <span class="muted">{{ "%.2f"|format(r.nearest_system_amount) }}</span>
+                {% endif %}
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endmacro %}
+
+{% block content %}
+<h2>Detailed Reconciliation — {{ result.summary.period_label or "" }}</h2>
+
+<div class="card">
+    <h3 style="margin-top:0;">Summary</h3>
+    <div class="stats">
+        <div class="stat-box"><div class="stat-label">Total Records Checked</div><div class="stat-value">{{ result.summary.total_records }}</div></div>
+        <div class="stat-box"><div class="stat-label">Matched</div><div class="stat-value">{{ result.summary.matched_records }}</div></div>
+        <div class="stat-box {% if result.summary.discrepancy_count > 0 %}stat-warn{% endif %}"><div class="stat-label">Discrepancies</div><div class="stat-value">{{ result.summary.discrepancy_count }}</div></div>
+    </div>
+
+    {% if result.summary.by_week_total %}
+    <h4 style="margin-top:24px;">Discrepancy breakdown by week</h4>
+    <table>
+        <thead>
+            <tr>
+                <th>Week</th>
+                <th class="num">Missing in System</th>
+                <th class="num">Wrong Side</th>
+                <th class="num">Amount Discrepancy</th>
+                <th class="num">In System Only</th>
+                <th class="num">Total Discrepancies</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for w, total in result.summary.by_week_total.items() %}
+            {% set miss   = result.summary.by_week_missing.get(w, 0) %}
+            {% set wrong  = result.summary.by_week_wrong.get(w, 0) %}
+            {% set amt    = result.summary.by_week_amount.get(w, 0) %}
+            {% set sysonly = result.summary.by_week_system_only.get(w, 0) %}
+            <tr>
+                <td>{{ w }}</td>
+                <td class="num">{{ miss }}</td>
+                <td class="num">{{ wrong }}</td>
+                <td class="num">{{ amt }}</td>
+                <td class="num {% if sysonly > 0 %}dr{% endif %}">{{ sysonly }}</td>
+                <td class="num">{{ miss + wrong + amt + sysonly }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
+    {% if result.summary.findings %}
+    <h4 style="margin-top:24px;">Key findings</h4>
+    <ol>{% for f in result.summary.findings %}<li>{{ f }}</li>{% endfor %}</ol>
+    {% endif %}
+
+    {% if download_token %}
+    <p style="margin-top:16px;"><a href="/reconcile/ggr/detailed/export/{{ download_token }}"><button>Download as Excel (.xlsx)</button></a></p>
+    {% endif %}
+</div>
+
+{% if result.discrepancies %}
+<div class="card">
+    <h3 style="margin-top:0;">Discrepancies ({{ result.discrepancies|length }})</h3>
+    {{ render_table(result.discrepancies) }}
+</div>
+{% else %}
+<div class="card success">No discrepancies found — every expected entry matched and no extra system entries found.</div>
+{% endif %}
+
+<div class="card">
+    <h3 style="margin-top:0;">Full reconciliation ({{ result.rows|length }} records)</h3>
+    {{ render_table(result.rows) }}
+</div>
+
+<p><a href="/reconcile/ggr/detailed">← Run another detailed reconciliation</a></p>
+{% endblock %}

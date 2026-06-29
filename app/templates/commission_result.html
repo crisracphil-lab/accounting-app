@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Commission Computation Result{% endblock %}
+{% block page_heading %}Commission Computation{% endblock %}
+{% block content %}
+<h2>Commission Computation Result</h2>
+<p><a href="/commission">← Run another commission computation</a></p>
+
+<div class="card">
+    <div class="section-head">
+        <div>
+            <h3>Computation totals</h3>
+            <p class="muted">Raw source: {{ result.source_filename }}{% if result.previous_filename %} | Previous carry source: {{ result.previous_filename }}{% endif %}</p>
+        </div>
+        <a class="button primary" href="/commission/export/{{ download_token }}">Download Excel output</a>
+    </div>
+    <div class="stats">
+        <div class="stat-box"><div class="stat-label">Sub-affiliates</div><div class="stat-value">{{ result.rows|length }}</div></div>
+        <div class="stat-box"><div class="stat-label">Total Payable</div><div class="stat-value">{{ "{:,.2f}".format(result.totals.total_payable|float) }}</div></div>
+        <div class="stat-box"><div class="stat-label">Shop Carry Forward</div><div class="stat-value">{{ "{:,.2f}".format(result.totals.shop_next_carry|float) }}</div></div>
+        <div class="stat-box"><div class="stat-label">Total Negative Carry</div><div class="stat-value">{{ "{:,.2f}".format(result.totals.next_negative_carry|float) }}</div></div>
+    </div>
+</div>
+
+{# ── Save as carry-forward ───────────────────────────────────────────────── #}
+<div class="card">
+    {% if carry_saved %}
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+            <span style="font-size:1.4rem;">✅</span>
+            <div style="flex:1; min-width:200px;">
+                <strong>Saved as carry-forward: "{{ carry_label }}"</strong>
+                <p class="muted" style="margin:2px 0 0;">This file will appear in the <em>Previous carry-forward</em> dropdown on the next commission run.</p>
+            </div>
+            {% if carry_id %}
+            <form method="post" action="/commission/carry-file/{{ carry_id }}/delete"
+                  onsubmit="return confirm('Delete carry-forward file \"{{ carry_label }}\"? This cannot be undone.')">
+                <button type="submit" class="button"
+                        style="padding:6px 14px; background:#fee2e2; color:#b91c1c; border-color:#fca5a5; white-space:nowrap;">
+                    🗑 Delete this carry-forward
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    {% else %}
+        <div class="section-head">
+            <div>
+                <h3 style="margin:0 0 4px;">Save as carry-forward for next cut-off</h3>
+                <p class="muted" style="margin:0;">Enter the cut-off period label and click Save. The generated Excel will be stored in the program and available as the previous carry file next time.</p>
+            </div>
+        </div>
+        <form method="post" action="/commission/save-carry/{{ download_token }}" style="display:flex; gap:10px; align-items:flex-end; margin-top:12px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:220px;">
+                <label style="display:block; margin-bottom:4px; font-size:.875rem; font-weight:600;">Cut-off label <span class="muted">(e.g. 2026 Jan 1–15)</span></label>
+                <input type="text" name="label" required placeholder="e.g. 2026 Jan 1–15"
+                       style="width:100%; padding:8px 10px; border:1px solid #d0d5dd; border-radius:6px; font-size:.95rem;">
+            </div>
+            <button type="submit" class="button primary" style="white-space:nowrap;">
+                💾 Save as carry-forward
+            </button>
+        </form>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 style="margin-top:0;">Summary by share</h3>
+    <table>
+        <thead>
+            <tr><th>Share</th><th class="num">Positive</th><th class="num">Negative</th><th class="num">Carried</th><th class="num">Net Payable</th><th class="num">Next Carry</th></tr>
+        </thead>
+        <tbody>
+        {% for key, label in [("shop","Shop"),("dsp","DSP"),("supervisor","Supervisor"),("manager","Manager")] %}
+            <tr>
+                <td>{{ label }}</td>
+                <td class="num">{{ "{:,.2f}".format(result.totals[key ~ "_positive"]|float) }}</td>
+                <td class="num">{{ "{:,.2f}".format(result.totals[key ~ "_negative"]|float) }}</td>
+                <td class="num">{{ "{:,.2f}".format(result.totals[key ~ "_carried"]|float) }}</td>
+                <td class="num">{{ "{:,.2f}".format(result.totals[key ~ "_net"]|float) }}</td>
+                <td class="num">{{ "{:,.2f}".format(result.totals[key ~ "_next_carry"]|float) }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h3 style="margin-top:0;">Shop negative carry-forward</h3>
+    <p class="muted">These shop negative balances should be carried over to the next cut-off.</p>
+    <table>
+        <thead><tr><th>Sub Affiliate ID</th><th>Sub Affiliate Name</th><th class="num">Shop Next Carry</th><th class="num">Total Negative Carry</th></tr></thead>
+        <tbody>
+        {% for row in result.negative_carry_rows %}
+            <tr>
+                <td>{{ row.sub_affiliate }}</td>
+                <td>{{ row.sub_affiliate_name }}</td>
+                <td class="num">{{ "{:,.2f}".format(row.shares.shop.next_carry|float) }}</td>
+                <td class="num">{{ "{:,.2f}".format(row.total_negative_next_carry|float) }}</td>
+            </tr>
+        {% else %}
+            <tr><td colspan="4" class="muted">No negative shop carry-forward found.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <h3 style="margin-top:0;">Preview</h3>
+    <table>
+        <thead><tr><th>Sub Affiliate ID</th><th>Name</th><th>DSP</th><th class="num">GGR</th><th class="num">Promotion</th><th class="num">Shop Net</th><th class="num">DSP Net</th><th class="num">Supervisor Net</th><th class="num">Manager Net</th><th class="num">Total Payable</th></tr></thead>
+        <tbody>
+        {% for row in result.rows[:50] %}
+            <tr>
+                <td>{{ row.sub_affiliate }}</td>
+                <td>{{ row.sub_affiliate_name }}</td>
+                <td>{{ row.dsp_tag or '—' }}</td>
+                <td class="num">{{ "{:,.2f}".format(row.ggr|float) }}</td>
+                <td class="num">{{ "{:,.2f}".format(row.promotion|float) }}</td>
+                <td class="num">{{ "{:,.2f}".format(row.shares.shop.net|float) }}</td>
+                <td class="num">{{ "{:,.2f}".format(row.shares.dsp.net|float) }}</td>
+                <td class="num">{{ "{:,.2f}".format(row.shares.supervisor.net|float) }}</td>
+                <td class="num">{{ "{:,.2f}".format(row.shares.manager.net|float) }}</td>
+                <td class="num">{{ "{:,.2f}".format(row.total_payable|float) }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% if result.rows|length > 50 %}<p class="muted">Showing first 50 rows. Download the Excel output for the full computation.</p>{% endif %}
+</div>
+{% endblock %}
