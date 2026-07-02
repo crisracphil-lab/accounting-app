@@ -588,6 +588,49 @@
 </div>
 {% endif %}
 
+{# ── Comments ──────────────────────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:18px">
+  <div class="section-head">
+    <div>
+      <h3>Comments</h3>
+      <p class="muted">
+        {% if comments %}{{ comments|length }} comment{% if comments|length != 1 %}s{% endif %} on this request.{% else %}No comments yet — start the conversation below.{% endif %}
+      </p>
+    </div>
+  </div>
+
+  {% if comments %}
+  <ul style="list-style:none;padding:0;margin:0 0 18px;display:flex;flex-direction:column;gap:10px">
+    {% for c in comments %}
+    <li style="border:1px solid var(--border);border-radius:8px;background:{% if c.role in ['admin','accountant'] %}#eff6ff{% elif c.role == 'department_user' and c.author_department_id == r.department_id %}var(--bg-alt,#f8fafc){% else %}#fffbeb{% endif %};padding:12px 16px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+        <strong style="font-size:13px">{{ c.full_name or c.username }}</strong>
+        {% if c.role == 'admin' or c.role == 'accountant' %}
+          <span class="badge" style="font-size:10px">Accounting</span>
+        {% elif c.role == 'department_user' and c.author_department_id == r.department_id %}
+          <span class="badge" style="font-size:10px">Requester</span>
+        {% else %}
+          <span class="badge" style="font-size:10px">Operations</span>
+        {% endif %}
+        <span class="muted small">{{ (c.created_at or '')[:16] }}</span>
+      </div>
+      <p style="margin:0;white-space:pre-wrap;font-size:14px">{{ c.body }}</p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <form method="post" action="/requests/{{ r.id }}/comments" data-disable-on-submit="1" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+    <label class="wide">Add a comment
+      <textarea name="body" rows="3" required placeholder="Write a comment for {% if is_accounting or is_operations_manager %}the requester{% else %}Accounting / Operations{% endif %}…"></textarea>
+    </label>
+    <div class="form-actions">
+      <button class="button primary" type="submit">Post comment</button>
+    </div>
+  </form>
+</div>
+
 {# ── Attachments ──────────────────────────────────────────────────────────── #}
 <div class="card" style="margin-bottom:18px">
   <div class="section-head">

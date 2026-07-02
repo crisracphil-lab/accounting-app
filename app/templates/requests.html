@@ -256,6 +256,42 @@
 {% if message %}<div class="alert success">{{ message }}</div>{% endif %}
 <a class="button primary" href="/requests/new" style="display:inline-block;margin-bottom:12px">+ New request</a>
 
+{# ── My drafts ─────────────────────────────────────────────────────────────── #}
+{% if my_drafts %}
+<div class="card" style="margin-bottom:18px">
+  <div class="section-head">
+    <div>
+      <h3>My drafts</h3>
+      <p class="muted">{{ my_drafts|length }} draft{% if my_drafts|length != 1 %}s{% endif %} saved — only visible to you until submitted.</p>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Payee</th>
+          <th>Description</th>
+          <th class="num">Amount</th>
+          <th>Last updated</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in my_drafts %}
+        <tr>
+          <td><strong>{{ d.payee_name }}</strong></td>
+          <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ d.description }}">{{ d.description }}</td>
+          <td class="num">{{ d.amount|money }}</td>
+          <td class="muted small">{{ (d.updated_at or d.created_at or '')[:16] }}</td>
+          <td><a class="button secondary" href="/requests/new?edit_draft={{ d.id }}" style="font-size:12px">Edit</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 {# ── Requests table ────────────────────────────────────────────────────────── #}
 <div class="card">
   <div class="section-head">
@@ -267,9 +303,19 @@
     </div>
   </div>
   <div class="table-wrap">
+    {% if is_accounting or is_operations_manager %}
+    <form method="post" action="/requests/bulk-status" id="bulk-status-form">
+    <input type="hidden" name="company_id" value="{{ selected_company_id }}">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+      <span class="muted small" id="bulk-selected-count">0 selected</span>
+      <button class="button secondary" type="submit" name="status" value="approved">Approve selected</button>
+      <button class="button secondary" type="submit" name="status" value="rejected">Reject selected</button>
+    </div>
+    {% endif %}
     <table>
       <thead>
         <tr>
+          {% if is_accounting or is_operations_manager %}<th style="width:28px"><input type="checkbox" id="bulk-select-all" onclick="toggleAllBulk(this)"></th>{% endif %}
           <th>ID</th>
           <th>Date</th>
           <th>Type</th>
@@ -287,6 +333,7 @@
       <tbody>
       {% for r in requests %}
       <tr>
+        {% if is_accounting or is_operations_manager %}<td><input type="checkbox" name="request_ids" value="{{ r.id }}" class="bulk-checkbox" onclick="updateBulkCount()"></td>{% endif %}
         <td><a href="/requests/{{ r.id }}">#{{ r.id }}</a></td>
         <td class="muted small" style="white-space:nowrap">{{ (r.created_at or '')[:10] }}</td>
         <td>{{ r.request_type.replace('_',' ')|title }}</td>
@@ -312,20 +359,33 @@
         <td class="num">{{ r.attachment_count }}</td>
       </tr>
       {% else %}
-      <tr><td colspan="12" class="muted" style="text-align:center;padding:32px">No requests found for the selected filters.</td></tr>
+      <tr><td colspan="13" class="muted" style="text-align:center;padding:32px">No requests found for the selected filters.</td></tr>
       {% endfor %}
       </tbody>
       {% if requests %}
       <tfoot>
         <tr style="font-weight:700;border-top:2px solid var(--border)">
-          <td colspan="8" style="text-align:right;padding-right:12px">Total (excl. cancelled/rejected)</td>
+          <td colspan="9" style="text-align:right;padding-right:12px">Total (excl. cancelled/rejected)</td>
           <td class="num">{{ requests_total|money }}</td>
           <td colspan="3"></td>
         </tr>
       </tfoot>
       {% endif %}
     </table>
+    {% if is_accounting or is_operations_manager %}</form>{% endif %}
   </div>
 </div>
+
+<script nonce="{{ request.state.csp_nonce }}">
+function toggleAllBulk(master) {
+  document.querySelectorAll('.bulk-checkbox').forEach(function (cb) { cb.checked = master.checked; });
+  updateBulkCount();
+}
+function updateBulkCount() {
+  var n = document.querySelectorAll('.bulk-checkbox:checked').length;
+  var el = document.getElementById('bulk-selected-count');
+  if (el) el.textContent = n + ' selected';
+}
+</script>
 
 {% endblock %}
