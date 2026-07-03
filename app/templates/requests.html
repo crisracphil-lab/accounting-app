@@ -355,6 +355,8 @@
           <span class="badge badge-{{ r.status }}">{{ r.status.replace('_',' ') }}</span>
           {% if r.request_type == 'reimbursement' and r.amount|float > 50000 %}<br><span class="badge warning" style="font-size:10px">GM</span>{% endif %}
           {% if duplicate_request_ids is defined and r.id in duplicate_request_ids %}<br><span class="badge" style="font-size:10px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5">⚠ duplicate</span>{% endif %}
+          {% set aging = aging_by_id.get(r.id) if aging_by_id is defined else None %}
+          {% if aging %}<br><span class="badge" style="font-size:10px;{% if aging.level == 'critical' %}background:#fef2f2;color:#dc2626;border:1px solid #fca5a5{% else %}background:#fffbeb;color:#b45309;border:1px solid #fcd34d{% endif %}">⏱ {{ aging.text }}</span>{% endif %}
         </td>
         <td class="num">{{ r.attachment_count }}</td>
       </tr>

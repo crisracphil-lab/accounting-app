@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card" style="margin-bottom:18px">
+  <div class="section-head">
+    <div>
+      <h3>Spending analytics</h3>
+      <p class="muted">Department and employee spend trends over the last 12 months.</p>
+    </div>
+  </div>
+
+  {% if is_operations_manager and ops_companies|length > 1 %}
+  <form method="get" action="/analytics" style="margin-bottom:14px">
+    {% if selected_department_id %}<input type="hidden" name="department_id" value="{{ selected_department_id }}">{% endif %}
+    <label style="max-width:260px">Company
+      <select name="company_id" onchange="this.form.submit()">
+        {% for c in ops_companies %}
+        <option value="{{ c.id }}" {% if c.id == selected_company_id %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+  {% endif %}
+</div>
+
+{# ── Department spend trend ──────────────────────────────────────────────── #}
+<div class="card" style="margin-bottom:18px">
+  <div class="section-head">
+    <div>
+      <h3>Department spend trend</h3>
+      <p class="muted">Total approved/paid spend per department, by month.</p>
+    </div>
+  </div>
+  <canvas id="deptChart" height="90"></canvas>
+</div>
+
+{# ── Employee spend trend (drill-down by department) ─────────────────────── #}
+<div class="card">
+  <div class="section-head">
+    <div>
+      <h3>Employee spend trend</h3>
+      <p class="muted">Select a department to see spend per employee within it.</p>
+    </div>
+  </div>
+
+  <form method="get" action="/analytics" style="margin-bottom:14px">
+    {% if selected_company_id %}<input type="hidden" name="company_id" value="{{ selected_company_id }}">{% endif %}
+    <label style="max-width:260px">Department
+      <select name="department_id" onchange="this.form.submit()">
+        <option value="0">Select a department…</option>
+        {% for d in departments %}
+        <option value="{{ d.id }}" {% if d.id == selected_department_id %}selected{% endif %}>{{ d.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+
+  {% if selected_department_id %}
+    <canvas id="empChart" height="90"></canvas>
+  {% else %}
+    <p class="muted">Pick a department above to see its employees' spend trend.</p>
+  {% endif %}
+</div>
+
+<script nonce="{{ request.state.csp_nonce }}" src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script nonce="{{ request.state.csp_nonce }}">
+(function () {
+  const months = {{ months_json|safe }};
+  const deptSeries = {{ department_series_json|safe }};
+  const empSeries = {{ employee_series_json|safe }};
+  const palette = ["#2563eb", "#dc2626", "#059669", "#d97706", "#7c3aed", "#0891b2", "#be185d", "#4b5563"];
+
+  function buildDatasets(series) {
+    return series.map((s, i) => ({
+      label: s.name,
+      data: s.data,
+      borderColor: palette[i % palette.length],
+      backgroundColor: palette[i % palette.length],
+      fill: false,
+      tension: 0.25,
+    }));
+  }
+
+  const deptCanvas = document.getElementById("deptChart");
+  if (deptCanvas) {
+    new Chart(deptCanvas, {
+      type: "line",
+      data: { labels: months, datasets: buildDatasets(deptSeries) },
+      options: { responsive: true, scales: { y: { beginAtZero: true } } },
+    });
+  }
+
+  const empCanvas = document.getElementById("empChart");
+  if (empCanvas) {
+    new Chart(empCanvas, {
+      type: "line",
+      data: { labels: months, datasets: buildDatasets(empSeries) },
+      options: { responsive: true, scales: { y: { beginAtZero: true } } },
+    });
+  }
+})();
+</script>
+{% endblock %}

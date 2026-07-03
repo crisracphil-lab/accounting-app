@@ -829,6 +829,32 @@ def _migrate(conn) -> None:
     );
     CREATE INDEX IF NOT EXISTS idx_rli_request ON request_line_items(request_id);
 
+    CREATE TABLE IF NOT EXISTS payment_records (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_id          INTEGER NOT NULL REFERENCES payment_requests(id) ON DELETE CASCADE,
+        amount              REAL    NOT NULL,
+        paid_date           TEXT    NOT NULL,
+        notes               TEXT,
+        recorded_by_user_id INTEGER REFERENCES users(id),
+        created_at          TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_payment_records_request ON payment_records(request_id);
+
+    CREATE TABLE IF NOT EXISTS request_templates (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner_user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name           TEXT NOT NULL,
+        request_type   TEXT NOT NULL DEFAULT 'supplier_payment',
+        payee_name     TEXT,
+        supplier_name  TEXT,
+        description    TEXT,
+        amount         TEXT,
+        account_id     INTEGER REFERENCES chart_of_accounts(id),
+        created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at     TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_request_templates_owner ON request_templates(owner_user_id);
+
     CREATE TABLE IF NOT EXISTS payment_receipts (
         id                  INTEGER PRIMARY KEY AUTOINCREMENT,
         request_id          INTEGER NOT NULL REFERENCES payment_requests(id) ON DELETE CASCADE,

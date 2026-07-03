@@ -22,6 +22,17 @@
       </select>
     </label>
 
+    {% if saved_templates %}
+    <label>Use a template <span class="muted small">(optional — fills in the fields below)</span>
+      <select id="template-picker" onchange="applyTemplate(this.value)">
+        <option value="">— none —</option>
+        {% for t in saved_templates %}
+        <option value="{{ t.id }}">{{ t.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% endif %}
+
     {% if companies|length > 1 %}
     <label>Company
       <select name="company_id" disabled>
@@ -119,6 +130,54 @@
   </form>
 </div>
 
+<div class="card narrow-card" style="margin-top:18px">
+  <div class="section-head">
+    <div>
+      <h3>💾 Save a template</h3>
+      <p class="muted">Create a reusable template for a recurring supplier or expense type.</p>
+    </div>
+  </div>
+  <form method="post" action="/requests/templates" class="form-grid">
+    <label>Template name<input type="text" name="name" required placeholder="e.g. Monthly office rent"></label>
+    <label>Request type
+      <select name="request_type">
+        <option value="supplier_payment">Supplier payment</option>
+        <option value="reimbursement">Reimbursement</option>
+      </select>
+    </label>
+    <label>Supplier / payee<input type="text" name="payee_name"></label>
+    <label>Default amount (PHP)<input type="number" step="0.01" min="0" name="amount" placeholder="0.00"></label>
+    <label class="wide">Description<textarea name="description" placeholder="What is this payment or reimbursement for?"></textarea></label>
+    <label>GL account
+      <select name="account_id">
+        <option value="0">— none —</option>
+        {% for type, accts in accounts.items() %}{% for a in accts %}
+        <option value="{{ a.id }}">{{ a.code }} · {{ a.name }}</option>
+        {% endfor %}{% endfor %}
+      </select>
+    </label>
+    <div class="form-actions">
+      <button class="button primary" type="submit">Save template</button>
+    </div>
+  </form>
+
+  {% if saved_templates %}
+  <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+    <div class="muted small" style="font-weight:600;margin-bottom:8px">Your templates</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      {% for t in saved_templates %}
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <span style="font-size:13px">{{ t.name }} <span class="muted small">— {{ t.payee_name or '' }}</span></span>
+        <form method="post" action="/requests/templates/{{ t.id }}/delete" style="margin:0" onsubmit="return confirm('Delete this template?')">
+          <button class="button secondary" type="submit" style="font-size:12px;padding:3px 10px">Delete</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
 <script nonce="{{ request.state.csp_nonce }}">
 function addLineItem(opts) {
   opts = opts || {};
@@ -173,6 +232,29 @@ function toggleLineItems() {
   }
 }
 
+// ── Recurring request templates ────────────────────────────────────────────
+const SAVED_TEMPLATES = {{ templates_json|safe }};
+function applyTemplate(id) {
+  if (!id) return;
+  const t = SAVED_TEMPLATES.find(function (x) { return String(x.id) === String(id); });
+  if (!t) return;
+  const typeSelect = document.getElementById("req-type");
+  if (typeSelect && t.request_type) {
+    typeSelect.value = t.request_type;
+    toggleLineItems();
+  }
+  const payeeInput = document.querySelector('[name="payee_name"]');
+  if (payeeInput) payeeInput.value = t.payee_name || "";
+  const supplierInput = document.querySelector('[name="supplier_name"]');
+  if (supplierInput) supplierInput.value = t.supplier_name || "";
+  const descInput = document.querySelector('[name="description"]');
+  if (descInput) descInput.value = t.description || "";
+  const amountInput = document.getElementById("single-amount");
+  if (amountInput) amountInput.value = t.amount || "";
+  const acctHidden = document.querySelector('#single-amount-section input[name="account_id"]');
+  if (acctHidden && t.account_id) acctHidden.value = t.account_id;
+}
+
 // Disable submit button to prevent double-submission
 document.getElementById("req-form").addEventListener("submit", (evt) => {
   // Preserve which button (Save as Draft vs Submit Request) was clicked.
@@ -217,6 +299,96 @@ toggleLineItems();
     return PARSEABLE.some(ext => lower.endsWith(ext));
   }
 
+  function isReceiptImage(filename) {
+    const lower = (filename || "").toLowerCase();
+    return [".jpg", ".jpeg", ".png", ".webp"].some(ext => lower.endsWith(ext));
+  }
+
+  function runReceiptOcr(file) {
+    const fd = new FormData();
+    fd.append("receipt_file", file);
+    fd.append("csrf_token", csrfToken());
+    showStatus("⏳ Reading receipt with OCR — " + file.name + "…");
+    fetch("/requests/parse-receipt", { method: "POST", body: fd })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { showStatus("⚠ " + data.error, "#b91c1c"); return; }
+        const filled = [];
+        if (data.payee_name) {
+          const payeeInput = document.querySelector('[name="payee_name"]');
+          if (payeeInput && !payeeInput.value.trim()) { payeeInput.value = data.payee_name; filled.push("payee"); }
+          const supplierInput = document.querySelector('[name="supplier_name"]');
+          if (supplierInput && !supplierInput.value.trim()) { supplierInput.value = data.payee_name; }
+        }
+        if (data.amount) {
+          const singleSection = document.getElementById("single-amount-section");
+          const usingLineItems = singleSection && singleSection.style.display === "none";
+          if (usingLineItems) {
+            if (data.line_items && data.line_items.length > 0) {
+              data.line_items.forEach(function (item) {
+                let row = Array.from(document.querySelectorAll("#line-items-body .li-row")).find(function (r) {
+                  const amt = r.querySelector('input[name="li_amount"]');
+                  return amt && !amt.value.trim();
+                });
+                if (row) {
+                  const descInput = row.querySelector('input[name="li_description"]');
+                  const amtInput = row.querySelector('input[name="li_amount"]');
+                  if (descInput && !descInput.value.trim()) descInput.value = item.description || "";
+                  if (amtInput) amtInput.value = item.amount;
+                  if (item.account_id) {
+                    const acctInput = row.querySelector('input[name="li_account_id"]');
+                    if (acctInput) acctInput.value = item.account_id;
+                  }
+                } else if (typeof addLineItem === "function") {
+                  addLineItem({ description: item.description, amount: item.amount });
+                  const rows = document.querySelectorAll("#line-items-body .li-row");
+                  const newRow = rows[rows.length - 1];
+                  if (newRow && item.account_id) {
+                    const acctInput = newRow.querySelector('input[name="li_account_id"]');
+                    if (acctInput) acctInput.value = item.account_id;
+                  }
+                }
+              });
+              if (typeof updateTotal === "function") updateTotal();
+              filled.push(data.line_items.length + " line item(s)");
+            } else {
+              const emptyRow = Array.from(document.querySelectorAll("#line-items-body .li-row")).find(function (row) {
+                const amt = row.querySelector('input[name="li_amount"]');
+                return amt && !amt.value.trim();
+              });
+              if (emptyRow) {
+                const descInput = emptyRow.querySelector('input[name="li_description"]');
+                const amtInput = emptyRow.querySelector('input[name="li_amount"]');
+                if (descInput && !descInput.value.trim() && data.payee_name) { descInput.value = data.payee_name; }
+                if (amtInput) { amtInput.value = data.amount; }
+                if (data.account_id) {
+                  const acctInput = emptyRow.querySelector('input[name="li_account_id"]');
+                  if (acctInput) acctInput.value = data.account_id;
+                }
+                if (typeof updateTotal === "function") updateTotal();
+                filled.push("amount (line item)");
+              }
+            }
+          } else {
+            const amountInput = document.getElementById("single-amount");
+            if (amountInput && !amountInput.value.trim()) { amountInput.value = data.amount; filled.push("amount"); }
+            if (data.account_id) {
+              const acctHidden = document.querySelector('#single-amount-section input[name="account_id"]');
+              if (acctHidden && (!acctHidden.value || acctHidden.value === "0")) acctHidden.value = data.account_id;
+            }
+          }
+        }
+        if (filled.length) {
+          showStatus("✓ Auto-filled from receipt: " + filled.join(", ") + ". Please review before submitting.", "#059669");
+        } else {
+          showStatus("Could not confidently read this receipt. Please fill in manually.", "#6b7280");
+        }
+      })
+      .catch(() => {
+        showStatus("Could not read receipt image. Please fill in manually.", "#b91c1c");
+      });
+  }
+
   function clearAutoRows() {
     document.querySelectorAll(".li-row[data-auto='1']").forEach(r => r.remove());
     updateTotal();
@@ -253,7 +425,11 @@ toggleLineItems();
     hideStatus();
 
     const parseableFiles = Array.from(this.files || []).filter(f => isParseable(f.name));
-    if (!parseableFiles.length) return;
+    if (!parseableFiles.length) {
+      const receiptImage = Array.from(this.files || []).find(f => isReceiptImage(f.name));
+      if (receiptImage) { runReceiptOcr(receiptImage); }
+      return;
+    }
 
     // Use the first parseable file for account detection
     const file = parseableFiles[0];
