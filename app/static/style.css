@@ -543,7 +543,7 @@ pre { background: #0f172a; color: #e2e8f0; padding: 14px; border-radius: 12px; o
 .badge.info { background: var(--info-bg); color: var(--info); }
 .badge.warning { background: var(--warning-bg); color: var(--warning); }
 button.small, .button.small { padding: 7px 10px; font-size: 12px; border-radius: 9px; }
-.table-wrap input, .table-wrap select, .table-wrap textarea { min-width: 130px; }
+.table-wrap input:not([type="checkbox"]):not([type="radio"]), .table-wrap select, .table-wrap textarea { min-width: 130px; }
 .table-wrap textarea { resize: vertical; }
 @media (min-width: 760px) { .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 1000px) { .page-grid.two-column { grid-template-columns: 1fr; } }
