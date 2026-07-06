@@ -306,16 +306,18 @@
     {% if is_accounting or is_operations_manager %}
     <form method="post" action="/requests/bulk-status" id="bulk-status-form">
     <input type="hidden" name="company_id" value="{{ selected_company_id }}">
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
-      <span class="muted small" id="bulk-selected-count">0 selected</span>
-      <button class="button secondary" type="submit" name="status" value="approved">Approve selected</button>
-      <button class="button secondary" type="submit" name="status" value="rejected">Reject selected</button>
+    <div id="bulk-action-bar" style="display:flex;gap:10px;align-items:center;margin-bottom:8px;padding:5px 12px;border-radius:8px;background:var(--bg-alt,#f1f5f9);font-size:12.5px;min-height:26px;flex-wrap:wrap">
+      <span class="muted" id="bulk-selected-count">Select rows to bulk approve/reject</span>
+      <span id="bulk-action-buttons" style="display:none;gap:6px">
+        <button class="button secondary" type="submit" name="status" value="approved" style="padding:3px 12px;font-size:12px;line-height:1.4">Approve</button>
+        <button class="button secondary" type="submit" name="status" value="rejected" style="padding:3px 12px;font-size:12px;line-height:1.4">Reject</button>
+      </span>
     </div>
     {% endif %}
     <table>
       <thead>
         <tr>
-          {% if is_accounting or is_operations_manager %}<th style="width:28px"><input type="checkbox" id="bulk-select-all" onclick="toggleAllBulk(this)"></th>{% endif %}
+          {% if is_accounting or is_operations_manager %}<th style="width:20px;padding-left:0.3cm;padding-right:0.3cm"><input type="checkbox" id="bulk-select-all" onclick="toggleAllBulk(this)"></th>{% endif %}
           <th>ID</th>
           <th>Date</th>
           <th>Type</th>
@@ -333,13 +335,13 @@
       <tbody>
       {% for r in requests %}
       <tr>
-        {% if is_accounting or is_operations_manager %}<td><input type="checkbox" name="request_ids" value="{{ r.id }}" class="bulk-checkbox" onclick="updateBulkCount()"></td>{% endif %}
+        {% if is_accounting or is_operations_manager %}<td style="padding-left:0.3cm;padding-right:0.3cm"><input type="checkbox" name="request_ids" value="{{ r.id }}" class="bulk-checkbox" onclick="updateBulkCount()"></td>{% endif %}
         <td><a href="/requests/{{ r.id }}">#{{ r.id }}</a></td>
         <td class="muted small" style="white-space:nowrap">{{ (r.created_at or '')[:10] }}</td>
         <td>{{ r.request_type.replace('_',' ')|title }}</td>
         <td>{{ r.full_name or r.username }}</td>
         <td>{{ r.department_name or '—' }}</td>
-        <td><strong>{{ r.payee_name }}</strong></td>
+        <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ r.payee_name }}"><strong>{{ r.payee_name }}</strong></td>
         <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ r.description }}">{{ r.description }}</td>
         <td>
           {% if r.account_code %}
@@ -386,7 +388,9 @@ function toggleAllBulk(master) {
 function updateBulkCount() {
   var n = document.querySelectorAll('.bulk-checkbox:checked').length;
   var el = document.getElementById('bulk-selected-count');
-  if (el) el.textContent = n + ' selected';
+  var btns = document.getElementById('bulk-action-buttons');
+  if (el) el.textContent = n > 0 ? (n + ' selected') : 'Select rows to bulk approve/reject';
+  if (btns) btns.style.display = n > 0 ? 'inline-flex' : 'none';
 }
 </script>
 

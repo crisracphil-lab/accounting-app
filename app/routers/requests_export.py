@@ -10,7 +10,8 @@ from datetime import timedelta as _timedelta
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
 from openpyxl import Workbook
-from openpyxl.styles import Font
+from openpyxl.styles import Font, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
 
 from app.db import db
 from app.deps import (
@@ -40,6 +41,41 @@ def _co_id(conn, value) -> int:
     row = conn.execute("SELECT id FROM companies WHERE is_active=1 ORDER BY id LIMIT 1").fetchone()
     return row["id"] if row else 0
 
+
+# ── Readability helpers for the monthly export (scoped to this file only —
+#    none of this touches app/services/excel_styles.py, so the closing-books,
+#    financial-statement, and open-items exports are unaffected) ─────────────
+
+PESO_FMT = '"₱"#,##0.00'
+
+_STATUS_STYLES = {
+    "paid":           (PatternFill("solid", fgColor="C6EFCE"), Font(size=12, color="006100", name="Calibri", bold=True)),
+    "approved":       (PatternFill("solid", fgColor="D9E8F5"), Font(size=12, color="1E3A5F", name="Calibri", bold=True)),
+    "partially_paid": (PatternFill("solid", fgColor="D9E8F5"), Font(size=12, color="1E3A5F", name="Calibri", bold=True)),
+    "rejected":       (PatternFill("solid", fgColor="FFC7CE"), Font(size=12, color="9C0006", name="Calibri", bold=True)),
+    "cancelled":      (PatternFill("solid", fgColor="FFC7CE"), Font(size=12, color="9C0006", name="Calibri", bold=True)),
+}
+_STATUS_DEFAULT_STYLE = (PatternFill("solid", fgColor="FFEB9C"), Font(size=12, color="9C6500", name="Calibri", bold=True))
+
+_THIN_SIDE_LOCAL = Side(style="thin", color="B0B8C5")
+_TOTAL_BORDER_LOCAL = Border(
+    top=Side(style="medium", color="1E3A5F"),
+    bottom=Side(style="medium", color="1E3A5F"),
+    left=_THIN_SIDE_LOCAL, right=_THIN_SIDE_LOCAL,
+)
+
+# Bumped up from the shared excel_styles.py defaults (9-10pt) to at least
+# 12pt for readability, per request. Kept local to this file so the other
+# reports that share excel_styles.py aren't affected.
+DATA_FONT_SIZE = 12
+HEADER_FONT_LOCAL = Font(bold=True, color="FFFFFF", size=DATA_FONT_SIZE, name="Calibri")
+
+
+def _apply_status_style(cell, raw_status: str, center_alignment) -> None:
+    fill, font = _STATUS_STYLES.get((raw_status or "").lower(), _STATUS_DEFAULT_STYLE)
+    cell.fill = fill
+    cell.font = font
+    cell.alignment = center_alignment
 
 
 @router.get("/requests/export.xlsx")
@@ -105,10 +141,10 @@ def requests_export_xlsx(request: Request, month: str = "", company_id: int = 0)
             line_items_by_request[li["request_id"]].append(li)
 
     from app.services.excel_styles import (
-        ALT_FILL,
-        BOLD_FONT,
+        CENTER,
         HDR_FILL,
-        MONEY_FMT,
+        INT_FMT,
+        RIGHT,
         add_corp_header,
         add_total_row,
         auto_col_width,
@@ -131,9 +167,22 @@ def requests_export_xlsx(request: Request, month: str = "", company_id: int = 0)
     num_cols = len(headers)
     data_row = add_corp_header(ws, "Payment Requests", period, num_cols)
     write_column_headers(ws, data_row, headers)
+    ws.row_dimensions[data_row].height = 20
+    for c in range(1, num_cols + 1):
+        ws.cell(data_row, c).font = HEADER_FONT_LOCAL
     data_row += 1
+    # write_column_headers() sets freeze_panes via ws.cell(row+1, 1); merely
+    # referencing a cell in openpyxl instantiates it, which silently bumps
+    # ws.max_row and leaves a permanent blank row before the real data below
+    # the header. Delete that phantom row, then set freeze_panes ourselves
+    # with a plain string reference (no side effect) so the header rows AND
+    # the first two columns (ID, Company) both stay frozen while scrolling.
+    ws.delete_rows(data_row, 1)
+    ws.freeze_panes = f"{get_column_letter(3)}{data_row}"
 
     total_amount = 0.0
+    status_by_row: dict = {}
+    row_cursor = data_row
     for r in rows:
         amt = _safe_float(r["amount"])
         total_amount += amt
@@ -161,16 +210,35 @@ def requests_export_xlsx(request: Request, month: str = "", company_id: int = 0)
                     li["account_title"] or "Unclassified",
                     _safe_float(li["amount"]),
                 ] + tail)
+                status_by_row[row_cursor] = r["status"] or ""
+                row_cursor += 1
         else:
             ws.append(base + [
                 r["account_code"] or "",
                 r["account_title"] or "Unclassified",
                 amt,
             ] + tail)
+            status_by_row[row_cursor] = r["status"] or ""
+            row_cursor += 1
 
     last_data = ws.max_row
     style_data_rows(ws, data_row, last_data, num_cols, money_cols={11})
     add_total_row(ws, last_data + 1, num_cols, {11: total_amount})
+
+    # Bump the data font up a size, give every row a touch more breathing
+    # room, colour-code the Status column, and switch the Amount column to a
+    # peso-prefixed format. Done after style_data_rows()/add_total_row() so
+    # these overrides aren't wiped out by the shared helpers.
+    for r in range(data_row, last_data + 2):
+        ws.row_dimensions[r].height = 22
+        for c in range(1, num_cols + 1):
+            cell = ws.cell(r, c)
+            cell.font = Font(bold=bool(cell.font and cell.font.bold), size=DATA_FONT_SIZE, name="Calibri")
+    for r in range(data_row, last_data + 1):
+        ws.cell(r, 11).number_format = PESO_FMT
+        _apply_status_style(ws.cell(r, 13), status_by_row.get(r, ""), CENTER)
+    ws.cell(last_data + 1, 11).number_format = PESO_FMT
+
     auto_col_width(ws)
     ws.column_dimensions["H"].width = 36
     ws.column_dimensions["J"].width = 32
@@ -207,27 +275,45 @@ def requests_export_xlsx(request: Request, month: str = "", company_id: int = 0)
     num_cols2 = len(headers2)
     hdr_row2 = add_corp_header(ws2, "Requests by Account Title", period, num_cols2)
     write_column_headers(ws2, hdr_row2, headers2)
+    ws2.row_dimensions[hdr_row2].height = 20
+    for c in range(1, num_cols2 + 1):
+        ws2.cell(hdr_row2, c).font = HEADER_FONT_LOCAL
+    # Same phantom blank-row cleanup as the Requests sheet above.
+    ws2.delete_rows(hdr_row2 + 1, 1)
+    ws2.freeze_panes = f"A{hdr_row2 + 1}"
 
     sorted_pivot = sorted(pivot.items(), key=lambda x: -x[1]["total"])
-    for i, (title, data) in enumerate(sorted_pivot, hdr_row2 + 1):
+    for title, data in sorted_pivot:
         pct = (data["total"] / grand_total * 100) if grand_total else 0
         ws2.append([data["code"], title, data["count"], data["total"], pct / 100])
-        if i % 2 == 0:
-            for cell in ws2[i]:
-                cell.fill = ALT_FILL
 
-    total_row2 = ws2.max_row + 1
+    last_data2 = ws2.max_row
+    # Consistent borders/font/alignment/alternating fill for every data row —
+    # previously this sheet only got alternating fill and nothing else, which
+    # is what made it look unfinished next to the Requests sheet.
+    style_data_rows(ws2, hdr_row2 + 1, last_data2, num_cols2, money_cols={4}, int_cols={3})
+    for r in range(hdr_row2 + 1, last_data2 + 1):
+        ws2.cell(r, 4).number_format = PESO_FMT
+        ws2.cell(r, 5).number_format = "0.00%"
+        for c in range(1, num_cols2 + 1):
+            ws2.cell(r, c).font = Font(size=DATA_FONT_SIZE, name="Calibri")
+
+    total_row2 = last_data2 + 1
     ws2.append(["", "TOTAL", sum(v["count"] for v in pivot.values()), grand_total, 1.0])
     for cell in ws2[total_row2]:
         cell.fill = HDR_FILL
-        cell.font = BOLD_FONT
+        cell.font = Font(bold=True, size=DATA_FONT_SIZE, color="FFFFFF", name="Calibri")
+        cell.border = _TOTAL_BORDER_LOCAL
+    ws2.cell(total_row2, 3).alignment = RIGHT
+    ws2.cell(total_row2, 3).number_format = INT_FMT
+    ws2.cell(total_row2, 4).alignment = RIGHT
+    ws2.cell(total_row2, 4).number_format = PESO_FMT
+    ws2.cell(total_row2, 5).alignment = RIGHT
+    ws2.cell(total_row2, 5).number_format = "0.00%"
 
-    for row in ws2.iter_rows(min_row=hdr_row2 + 1, min_col=4, max_col=4):
-        for cell in row:
-            cell.number_format = MONEY_FMT
-    for row in ws2.iter_rows(min_row=hdr_row2 + 1, min_col=5, max_col=5):
-        for cell in row:
-            cell.number_format = "0.00%"
+    # A touch more row height throughout, matching the Requests sheet.
+    for r in range(hdr_row2 + 1, total_row2 + 1):
+        ws2.row_dimensions[r].height = 22
 
     ws2.column_dimensions["A"].width = 16
     ws2.column_dimensions["B"].width = 36
