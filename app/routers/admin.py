@@ -65,7 +65,7 @@ def dashboard(request: Request) -> Response:
                 SELECT COUNT(*) AS n,
                        COALESCE(SUM(CAST(REPLACE(amount,',','') AS REAL)), 0) AS total
                   FROM payment_requests
-                 WHERE status IN ('submitted','for_review','for_process')
+                 WHERE status IN ('submitted','for_review','for_process') AND is_draft = 0
             """).fetchone()
             pending_requests       = pr_row["n"]
             pending_requests_total = _safe_float(pr_row["total"])

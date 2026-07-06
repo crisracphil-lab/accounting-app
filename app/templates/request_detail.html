@@ -37,6 +37,9 @@
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span class="badge badge-{{ r.status }}">{{ r.status.replace('_',' ') }}</span>
         <span class="badge">{{ r.request_type.replace('_',' ')|title }}</span>
+        {% if aging %}
+          <span class="badge" style="{% if aging.level == 'critical' %}background:#fef2f2;color:#dc2626;border:1px solid #fca5a5{% else %}background:#fffbeb;color:#b45309;border:1px solid #fcd34d{% endif %}">⏱ {{ aging.text }}</span>
+        {% endif %}
         {% if needs_operations_approval %}
           <span class="badge warning" title="General Manager approval required above PHP 50,000">⚠️ GM approval required</span>
         {% endif %}
@@ -539,6 +542,56 @@
 </div>
 {% endif %}
 
+{% if r.request_type == 'supplier_payment' and (payment_records or (is_accounting and r.status == 'approved')) %}
+<div class="card" style="margin-bottom:18px">
+  <div class="section-head">
+    <div>
+      <h3>💰 Partial payments
+        {% if payment_records and remaining_balance and remaining_balance > 0.005 %}
+        <span class="badge" style="background:var(--warning-bg);color:var(--warning);font-size:11px;margin-left:8px">Partially Paid</span>
+        {% endif %}
+      </h3>
+      <p class="muted">Installment history for this supplier payment.</p>
+    </div>
+  </div>
+
+  {% if payment_records %}
+  <div class="table-wrap" style="margin-bottom:14px">
+    <table>
+      <thead>
+        <tr><th>Date</th><th class="num">Amount</th><th>Notes</th><th>Recorded by</th></tr>
+      </thead>
+      <tbody>
+        {% for p in payment_records %}
+        <tr>
+          <td>{{ p.paid_date }}</td>
+          <td class="num">{{ p.amount|money }}</td>
+          <td>{{ p.notes or '' }}</td>
+          <td class="muted small">{{ p.recorded_by_name or p.recorded_by_username or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small" style="margin-bottom:14px">
+    Paid so far: <strong>{{ total_paid|money }}</strong> ·
+    Remaining: <strong>{{ remaining_balance|money }}</strong>
+  </p>
+  {% endif %}
+
+  {% if is_accounting and r.status == 'approved' %}
+  <form method="post" action="/requests/{{ r.id }}/record-payment" data-disable-on-submit="1" class="form-grid">
+    <label>Payment amount<input type="number" step="0.01" min="0.01" name="amount" required></label>
+    <label>Payment date<input type="date" name="paid_date" required></label>
+    <label class="wide">Notes (optional)<input type="text" name="notes" placeholder="e.g. bank reference / check number"></label>
+    <div class="form-actions">
+      <button class="button primary" type="submit">Record payment</button>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
 {# ── Payment receipts ─────────────────────────────────────────────────────── #}
 {% if receipts %}
 <div class="card" style="margin-bottom:18px">
@@ -585,6 +638,80 @@
     </li>
     {% endfor %}
   </ul>
+</div>
+{% endif %}
+
+<div style="margin-bottom:18px">
+  <a class="button" href="/requests/{{ r.id }}/export-pdf">⬇ Download PDF</a>
+</div>
+{# ── Activity timeline ────────────────────────────────────────────────────── #}
+{% if timeline %}
+<div class="card" style="margin-bottom:18px">
+  <div class="section-head">
+    <div>
+      <h3>Activity timeline</h3>
+      <p class="muted">Full history of this request, from creation to today.</p>
+    </div>
+  </div>
+  <ul style="list-style:none;padding:0;margin:0">
+    {% for ev in timeline %}
+    <li style="display:flex;gap:12px;padding-bottom:18px">
+      <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">
+        <span style="width:26px;height:26px;border-radius:50%;background:var(--bg-alt,#f8fafc);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0">{{ ev.icon }}</span>
+        {% if not loop.last %}<div style="flex:1;width:2px;background:var(--border);margin-top:2px"></div>{% endif %}
+      </div>
+      <div style="padding-top:2px">
+        <div style="font-size:14px;font-weight:600">{{ ev.label }}</div>
+        <div class="muted small" style="margin-top:2px">{{ ev.actor_name }} · {{ (ev.timestamp or '')[:16] }}</div>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{# ── Comments ──────────────────────────────────────────────────────────────── #}
+{% if can_view_comments %}
+<div class="card" style="margin-bottom:18px">
+  <div class="section-head">
+    <div>
+      <h3>Comments</h3>
+      <p class="muted">
+        {% if comments %}{{ comments|length }} comment{% if comments|length != 1 %}s{% endif %} on this request.{% else %}No comments yet — start the conversation below.{% endif %}
+      </p>
+    </div>
+  </div>
+
+  {% if comments %}
+  <ul style="list-style:none;padding:0;margin:0 0 18px;display:flex;flex-direction:column;gap:10px">
+    {% for c in comments %}
+    <li style="border:1px solid var(--border);border-radius:8px;background:{% if c.role in ['admin','accountant'] %}#eff6ff{% elif c.author_user_id == r.requester_user_id %}var(--bg-alt,#f8fafc){% else %}#fffbeb{% endif %};padding:12px 16px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+        <strong style="font-size:13px">{{ c.full_name or c.username }}</strong>
+        {% if c.role == 'admin' or c.role == 'accountant' %}
+          <span class="badge" style="font-size:10px">Accounting</span>
+        {% elif c.author_user_id == r.requester_user_id %}
+          <span class="badge" style="font-size:10px">Requester</span>
+        {% else %}
+          <span class="badge" style="font-size:10px">Accounting</span>
+        {% endif %}
+        <span class="muted small">{{ (c.created_at or '')[:16] }}</span>
+      </div>
+      <p style="margin:0;white-space:pre-wrap;font-size:14px">{{ c.body }}</p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  <form method="post" action="/requests/{{ r.id }}/comments" data-disable-on-submit="1" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{ request.state.csrf_token }}">
+    <label class="wide">Add a comment
+      <textarea name="body" rows="3" required placeholder="Write a comment for {% if is_accounting or is_operations_manager %}the requester{% else %}Accounting / Operations{% endif %}…"></textarea>
+    </label>
+    <div class="form-actions">
+      <button class="button primary" type="submit">Post comment</button>
+    </div>
+  </form>
 </div>
 {% endif %}
 

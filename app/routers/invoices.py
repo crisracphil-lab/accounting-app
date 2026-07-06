@@ -20,7 +20,7 @@ router = APIRouter()
 @router.get("/invoices", response_class=HTMLResponse)
 def invoices_page(request: Request, status: str = "", message: str = "") -> Response:
     with db() as conn:
-        where = "WHERE status = ?" if status else ""
+        where = "WHERE i.status = ?" if status else ""
         params = (status,) if status else ()
         invoices = conn.execute(
             f"""SELECT i.*, je.status AS je_status

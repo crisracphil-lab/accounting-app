@@ -11,13 +11,27 @@
   </div>
   {% if error %}<div class="alert danger">{{ error }}</div>{% endif %}
 
-  <form id="req-form" data-disable-on-submit="1" action="/requests/create" method="post" enctype="multipart/form-data" class="form-grid">
+  <form id="req-form" data-disable-on-submit="1"
+        action="{% if draft %}/requests/{{ draft.id }}/update-draft{% else %}/requests/create{% endif %}"
+        method="post" enctype="multipart/form-data" class="form-grid">
+    {% if draft %}<input type="hidden" name="draft_id" value="{{ draft.id }}">{% endif %}
     <label>Request type
       <select name="request_type" id="req-type" onchange="toggleLineItems()">
-        <option value="supplier_payment">Supplier payment</option>
-        <option value="reimbursement">Reimbursement</option>
+        <option value="supplier_payment" {% if draft and draft.request_type == 'supplier_payment' %}selected{% endif %}>Supplier payment</option>
+        <option value="reimbursement" {% if draft and draft.request_type == 'reimbursement' %}selected{% endif %}>Reimbursement</option>
       </select>
     </label>
+
+    {% if saved_templates %}
+    <label>Use a template <span class="muted small">(optional — fills in the fields below)</span>
+      <select id="template-picker" onchange="applyTemplate(this.value)">
+        <option value="">— none —</option>
+        {% for t in saved_templates %}
+        <option value="{{ t.id }}">{{ t.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% endif %}
 
     {% if companies|length > 1 %}
     <label>Company
@@ -36,14 +50,14 @@
     </label>
 
     <label>Your email <span class="muted small">(for payment notification)</span>
-      <input type="email" name="requester_email" placeholder="e.g. yourname@example.com">
+      <input type="email" name="requester_email" value="{{ draft.requester_email or '' if draft else '' }}" placeholder="e.g. yourname@example.com">
       <span class="muted small">Enter your personal email so you receive a notification when your request is paid.</span>
     </label>
 
-    <label>Supplier / payee<input type="text" name="payee_name" required></label>
-    <label>Supplier name for invoice tab<input type="text" name="supplier_name" placeholder="Leave blank to use payee"></label>
-    <label class="wide">Description / purpose<textarea name="description" required placeholder="What is this payment or reimbursement for?"></textarea></label>
-    <label>Due date<input type="date" name="due_date"></label>
+    <label>Supplier / payee<input type="text" name="payee_name" value="{{ draft.payee_name or '' if draft else '' }}" required></label>
+    <label>Supplier name for invoice tab<input type="text" name="supplier_name" value="{{ draft.supplier_name or '' if draft else '' }}" placeholder="Leave blank to use payee"></label>
+    <label class="wide">Description / purpose<textarea name="description" required placeholder="What is this payment or reimbursement for?">{{ draft.description or '' if draft else '' }}</textarea></label>
+    <label>Due date<input type="date" name="due_date" value="{{ draft.due_date or '' if draft else '' }}"></label>
 
     {# ── Line items (shown for reimbursements, optional for supplier payments) ── #}
     <div class="wide" id="line-items-section">
@@ -65,6 +79,16 @@
             </tr>
           </thead>
           <tbody id="line-items-body">
+            {% if draft and draft_line_items %}
+            {% for li in draft_line_items %}
+            <tr class="li-row">
+              <input type="hidden" name="li_account_id" value="{{ li.account_id or 0 }}">
+              <td><input type="text" name="li_description" value="{{ li.description or '' }}" placeholder="e.g. Grab to client meeting, office supplies…" style="width:100%"></td>
+              <td><input type="number" name="li_amount" step="0.01" min="0" value="{{ li.amount }}" placeholder="0.00" class="li-amount" style="width:100%;text-align:right" oninput="updateTotal()"></td>
+              <td><button type="button" onclick="removeRow(this)" style="background:none;border:none;cursor:pointer;color:var(--danger,#dc2626);font-size:18px;padding:0 4px" title="Remove">×</button></td>
+            </tr>
+            {% endfor %}
+            {% else %}
             {# First row pre-rendered — JS adds more #}
             <tr class="li-row">
               <input type="hidden" name="li_account_id" value="0">
@@ -72,6 +96,7 @@
               <td><input type="number" name="li_amount" step="0.01" min="0" placeholder="0.00" class="li-amount" style="width:100%;text-align:right" oninput="updateTotal()"></td>
               <td></td>
             </tr>
+            {% endif %}
           </tbody>
           <tfoot>
             <tr>
@@ -87,21 +112,70 @@
 
     {# Single amount field — shown for supplier payments or as fallback #}
     <div id="single-amount-section" style="display:none">
-      <label>Amount (PHP)<input type="number" step="0.01" name="amount" id="single-amount" min="0" placeholder="0.00"></label>
-      <input type="hidden" name="account_id" value="0">
+      <label>Amount (PHP)<input type="number" step="0.01" name="amount" id="single-amount" min="0" value="{{ draft.amount or '' if draft else '' }}" placeholder="0.00"></label>
+      <input type="hidden" name="account_id" value="{{ draft.account_id or 0 if draft else 0 }}">
     </div>
 
     <label class="wide">PO / invoice / receipt / reimbursement form <span id="file-label-hint">(attach supporting documents)</span>
       <input type="file" name="file" id="req-file-input" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xlsm,.xls,.csv,.doc,.docx" multiple>
-      <span class="muted small" id="file-req-hint">At least 1 and maximum 10 attachments required.</span>
+      <span class="muted small" id="file-req-hint">{% if draft %}Optional while saved as a draft — required before final submission.{% else %}At least 1 and maximum 10 attachments required.{% endif %}</span>
       <span id="auto-detect-status" style="display:none;margin-top:6px;font-size:13px"></span>
     </label>
 
     <div class="form-actions">
       <a class="button" href="/requests">Cancel</a>
-      <button class="button primary" type="submit">Submit request</button>
+      <button class="button" type="submit" name="action" value="draft">Save as Draft</button>
+      <button class="button primary" type="submit" name="action" value="submit">Submit Request</button>
     </div>
   </form>
+</div>
+
+<div class="card narrow-card" style="margin-top:18px">
+  <div class="section-head">
+    <div>
+      <h3>💾 Save a template</h3>
+      <p class="muted">Create a reusable template for a recurring supplier or expense type.</p>
+    </div>
+  </div>
+  <form method="post" action="/requests/templates" class="form-grid">
+    <label>Template name<input type="text" name="name" required placeholder="e.g. Monthly office rent"></label>
+    <label>Request type
+      <select name="request_type">
+        <option value="supplier_payment">Supplier payment</option>
+        <option value="reimbursement">Reimbursement</option>
+      </select>
+    </label>
+    <label>Supplier / payee<input type="text" name="payee_name"></label>
+    <label>Default amount (PHP)<input type="number" step="0.01" min="0" name="amount" placeholder="0.00"></label>
+    <label class="wide">Description<textarea name="description" placeholder="What is this payment or reimbursement for?"></textarea></label>
+    <label>GL account
+      <select name="account_id">
+        <option value="0">— none —</option>
+        {% for type, accts in accounts.items() %}{% for a in accts %}
+        <option value="{{ a.id }}">{{ a.code }} · {{ a.name }}</option>
+        {% endfor %}{% endfor %}
+      </select>
+    </label>
+    <div class="form-actions">
+      <button class="button primary" type="submit">Save template</button>
+    </div>
+  </form>
+
+  {% if saved_templates %}
+  <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+    <div class="muted small" style="font-weight:600;margin-bottom:8px">Your templates</div>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      {% for t in saved_templates %}
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <span style="font-size:13px">{{ t.name }} <span class="muted small">— {{ t.payee_name or '' }}</span></span>
+        <form method="post" action="/requests/templates/{{ t.id }}/delete" style="margin:0" onsubmit="return confirm('Delete this template?')">
+          <button class="button secondary" type="submit" style="font-size:12px;padding:3px 10px">Delete</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 <script nonce="{{ request.state.csp_nonce }}">
@@ -158,8 +232,46 @@ function toggleLineItems() {
   }
 }
 
+// ── Recurring request templates ────────────────────────────────────────────
+const SAVED_TEMPLATES = {{ templates_json|safe }};
+function applyTemplate(id) {
+  if (!id) return;
+  const t = SAVED_TEMPLATES.find(function (x) { return String(x.id) === String(id); });
+  if (!t) return;
+  const typeSelect = document.getElementById("req-type");
+  if (typeSelect && t.request_type) {
+    typeSelect.value = t.request_type;
+    toggleLineItems();
+  }
+  const payeeInput = document.querySelector('[name="payee_name"]');
+  if (payeeInput) payeeInput.value = t.payee_name || "";
+  const supplierInput = document.querySelector('[name="supplier_name"]');
+  if (supplierInput) supplierInput.value = t.supplier_name || "";
+  const descInput = document.querySelector('[name="description"]');
+  if (descInput) descInput.value = t.description || "";
+  const amountInput = document.getElementById("single-amount");
+  if (amountInput) amountInput.value = t.amount || "";
+  const acctHidden = document.querySelector('#single-amount-section input[name="account_id"]');
+  if (acctHidden && t.account_id) acctHidden.value = t.account_id;
+}
+
 // Disable submit button to prevent double-submission
-document.getElementById("req-form").addEventListener("submit", () => {
+document.getElementById("req-form").addEventListener("submit", (evt) => {
+  // Preserve which button (Save as Draft vs Submit Request) was clicked.
+  // Disabled buttons are excluded from submitted form data, and we're about
+  // to disable all of them below — so stash the value in a hidden field first.
+  const submitter = evt.submitter;
+  if (submitter && submitter.name === "action") {
+    let hiddenAction = document.getElementById("action-submitter-value");
+    if (!hiddenAction) {
+      hiddenAction = document.createElement("input");
+      hiddenAction.type = "hidden";
+      hiddenAction.name = "action";
+      hiddenAction.id = "action-submitter-value";
+      evt.target.appendChild(hiddenAction);
+    }
+    hiddenAction.value = submitter.value;
+  }
   document.querySelectorAll("#req-form button[type='submit']").forEach(btn => {
     btn.disabled = true;
     btn.textContent = "Processing...";
@@ -185,6 +297,96 @@ toggleLineItems();
   function isParseable(filename) {
     const lower = (filename || "").toLowerCase();
     return PARSEABLE.some(ext => lower.endsWith(ext));
+  }
+
+  function isReceiptImage(filename) {
+    const lower = (filename || "").toLowerCase();
+    return [".jpg", ".jpeg", ".png", ".webp"].some(ext => lower.endsWith(ext));
+  }
+
+  function runReceiptOcr(file) {
+    const fd = new FormData();
+    fd.append("receipt_file", file);
+    fd.append("csrf_token", csrfToken());
+    showStatus("⏳ Reading receipt with OCR — " + file.name + "…");
+    fetch("/requests/parse-receipt", { method: "POST", body: fd })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { showStatus("⚠ " + data.error, "#b91c1c"); return; }
+        const filled = [];
+        if (data.payee_name) {
+          const payeeInput = document.querySelector('[name="payee_name"]');
+          if (payeeInput && !payeeInput.value.trim()) { payeeInput.value = data.payee_name; filled.push("payee"); }
+          const supplierInput = document.querySelector('[name="supplier_name"]');
+          if (supplierInput && !supplierInput.value.trim()) { supplierInput.value = data.payee_name; }
+        }
+        if (data.amount) {
+          const singleSection = document.getElementById("single-amount-section");
+          const usingLineItems = singleSection && singleSection.style.display === "none";
+          if (usingLineItems) {
+            if (data.line_items && data.line_items.length > 0) {
+              data.line_items.forEach(function (item) {
+                let row = Array.from(document.querySelectorAll("#line-items-body .li-row")).find(function (r) {
+                  const amt = r.querySelector('input[name="li_amount"]');
+                  return amt && !amt.value.trim();
+                });
+                if (row) {
+                  const descInput = row.querySelector('input[name="li_description"]');
+                  const amtInput = row.querySelector('input[name="li_amount"]');
+                  if (descInput && !descInput.value.trim()) descInput.value = item.description || "";
+                  if (amtInput) amtInput.value = item.amount;
+                  if (item.account_id) {
+                    const acctInput = row.querySelector('input[name="li_account_id"]');
+                    if (acctInput) acctInput.value = item.account_id;
+                  }
+                } else if (typeof addLineItem === "function") {
+                  addLineItem({ description: item.description, amount: item.amount });
+                  const rows = document.querySelectorAll("#line-items-body .li-row");
+                  const newRow = rows[rows.length - 1];
+                  if (newRow && item.account_id) {
+                    const acctInput = newRow.querySelector('input[name="li_account_id"]');
+                    if (acctInput) acctInput.value = item.account_id;
+                  }
+                }
+              });
+              if (typeof updateTotal === "function") updateTotal();
+              filled.push(data.line_items.length + " line item(s)");
+            } else {
+              const emptyRow = Array.from(document.querySelectorAll("#line-items-body .li-row")).find(function (row) {
+                const amt = row.querySelector('input[name="li_amount"]');
+                return amt && !amt.value.trim();
+              });
+              if (emptyRow) {
+                const descInput = emptyRow.querySelector('input[name="li_description"]');
+                const amtInput = emptyRow.querySelector('input[name="li_amount"]');
+                if (descInput && !descInput.value.trim() && data.payee_name) { descInput.value = data.payee_name; }
+                if (amtInput) { amtInput.value = data.amount; }
+                if (data.account_id) {
+                  const acctInput = emptyRow.querySelector('input[name="li_account_id"]');
+                  if (acctInput) acctInput.value = data.account_id;
+                }
+                if (typeof updateTotal === "function") updateTotal();
+                filled.push("amount (line item)");
+              }
+            }
+          } else {
+            const amountInput = document.getElementById("single-amount");
+            if (amountInput && !amountInput.value.trim()) { amountInput.value = data.amount; filled.push("amount"); }
+            if (data.account_id) {
+              const acctHidden = document.querySelector('#single-amount-section input[name="account_id"]');
+              if (acctHidden && (!acctHidden.value || acctHidden.value === "0")) acctHidden.value = data.account_id;
+            }
+          }
+        }
+        if (filled.length) {
+          showStatus("✓ Auto-filled from receipt: " + filled.join(", ") + ". Please review before submitting.", "#059669");
+        } else {
+          showStatus("Could not confidently read this receipt. Please fill in manually.", "#6b7280");
+        }
+      })
+      .catch(() => {
+        showStatus("Could not read receipt image. Please fill in manually.", "#b91c1c");
+      });
   }
 
   function clearAutoRows() {
@@ -223,7 +425,11 @@ toggleLineItems();
     hideStatus();
 
     const parseableFiles = Array.from(this.files || []).filter(f => isParseable(f.name));
-    if (!parseableFiles.length) return;
+    if (!parseableFiles.length) {
+      const receiptImage = Array.from(this.files || []).find(f => isReceiptImage(f.name));
+      if (receiptImage) { runReceiptOcr(receiptImage); }
+      return;
+    }
 
     // Use the first parseable file for account detection
     const file = parseableFiles[0];

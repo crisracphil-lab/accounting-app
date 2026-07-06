@@ -365,6 +365,7 @@ tr:hover td { background: #fbfefd; }
     line-height: 1;
 }
 .badge-draft, .badge-pending, .badge-in_progress { background: var(--warning-bg); color: var(--warning); }
+.badge-partially_paid { background: var(--warning-bg); color: var(--warning); }
 .badge-approved, .badge-completed { background: var(--success-bg); color: var(--success); }
 .badge-matched, .badge-generated, .badge.info { background: var(--info-bg); color: var(--info); }
 .badge-unmatched, .badge-suspense, .badge.danger { background: var(--danger-bg); color: var(--danger); }

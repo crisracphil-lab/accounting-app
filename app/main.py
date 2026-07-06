@@ -30,6 +30,7 @@ from app.services.log_service import log_error_event, log_security_event
 from app.routers import (
     accounting,
     admin,
+    analytics,
     api,
     auth,
     banking,
@@ -207,11 +208,13 @@ async def load_user_and_protect_pages(request: Request, call_next):
 
     if user is not None and user["role"] == "department_user":
         allowed_prefixes = [
-            "/requests", "/notifications", "/static/", "/api/health", "/change-password",
+            "/requests", "/notifications", "/static/", "/api/health", "/change-password", "/profile",
         ]
         if request.state.can_use_calendar:
             allowed_prefixes.extend(["/calendar", "/api/calendar"])
-        allowed_exact = {"/logout"}
+        if user["is_operations_manager"]:
+            allowed_prefixes.extend(["/ops-reconciliation", "/analytics"])
+        allowed_exact = {"/logout", "/"}
         if path not in allowed_exact and not any(
             path.startswith(prefix) for prefix in allowed_prefixes
         ):
@@ -299,6 +302,7 @@ app.include_router(api.router)
 app.include_router(reporting.router)
 app.include_router(banking.router)
 app.include_router(accounting.router)
+app.include_router(analytics.router)
 app.include_router(reconciliation.router)
 app.include_router(requests_export.router)
 app.include_router(requests.router)

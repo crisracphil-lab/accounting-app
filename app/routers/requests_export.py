@@ -235,6 +235,10 @@ def requests_export_xlsx(request: Request, month: str = "", company_id: int = 0)
     ws2.column_dimensions["D"].width = 18
     ws2.column_dimensions["E"].width = 14
 
+    # Move the account summary sheet to the front so it's the first
+    # thing anyone sees when they open the export.
+    wb.move_sheet("By Account", offset=-1)
+
     filename = f"bookpoint_requests_{month}.xlsx"
     return StreamingResponse(
         io.BytesIO(finalize_workbook(wb)),
@@ -509,6 +513,10 @@ def requests_export_weekly(request: Request, start: str = "", end: str = "", com
     auto_col_width(ws3)
     ws3.column_dimensions["B"].width = 35
     ws3.row_dimensions[1].height = 36
+
+    # Move the account summary sheet to the front so it's the first
+    # thing anyone sees when they open the export.
+    wb.move_sheet("By Account", offset=-1)
 
     filename = f"bookpoint_requests_{monday_iso}_to_{sunday_iso}.xlsx"
     return StreamingResponse(

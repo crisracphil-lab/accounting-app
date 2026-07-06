@@ -259,6 +259,14 @@ CREATE TABLE IF NOT EXISTS payment_requests (
 );
 CREATE INDEX IF NOT EXISTS idx_payment_requests_status ON payment_requests(status);
 CREATE INDEX IF NOT EXISTS idx_payment_requests_requester ON payment_requests(requester_user_id);
+CREATE TABLE IF NOT EXISTS request_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id INTEGER NOT NULL REFERENCES payment_requests(id) ON DELETE CASCADE,
+    author_user_id INTEGER NOT NULL REFERENCES users(id),
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_request_comments_request ON request_comments(request_id, created_at);
 
 CREATE TABLE IF NOT EXISTS request_attachments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -793,6 +801,7 @@ def _migrate(conn) -> None:
         "requester_email": "TEXT",
         "journal_basis_filename": "TEXT",
         "journal_basis_path": "TEXT",
+        "is_draft": "INTEGER NOT NULL DEFAULT 0",
     }
     for name, ddl in pr_extra_cols.items():
         if pr_cols and name not in pr_cols:
@@ -820,6 +829,32 @@ def _migrate(conn) -> None:
     );
     CREATE INDEX IF NOT EXISTS idx_rli_request ON request_line_items(request_id);
 
+    CREATE TABLE IF NOT EXISTS payment_records (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_id          INTEGER NOT NULL REFERENCES payment_requests(id) ON DELETE CASCADE,
+        amount              REAL    NOT NULL,
+        paid_date           TEXT    NOT NULL,
+        notes               TEXT,
+        recorded_by_user_id INTEGER REFERENCES users(id),
+        created_at          TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_payment_records_request ON payment_records(request_id);
+
+    CREATE TABLE IF NOT EXISTS request_templates (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner_user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name           TEXT NOT NULL,
+        request_type   TEXT NOT NULL DEFAULT 'supplier_payment',
+        payee_name     TEXT,
+        supplier_name  TEXT,
+        description    TEXT,
+        amount         TEXT,
+        account_id     INTEGER REFERENCES chart_of_accounts(id),
+        created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at     TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_request_templates_owner ON request_templates(owner_user_id);
+
     CREATE TABLE IF NOT EXISTS payment_receipts (
         id                  INTEGER PRIMARY KEY AUTOINCREMENT,
         request_id          INTEGER NOT NULL REFERENCES payment_requests(id) ON DELETE CASCADE,
@@ -831,6 +866,16 @@ def _migrate(conn) -> None:
         uploaded_at         TEXT    NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_receipts_request ON payment_receipts(request_id);
+    """)# Two-way comment thread on a payment request (requester <-> accounting/operations)
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS request_comments (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_id      INTEGER NOT NULL REFERENCES payment_requests(id) ON DELETE CASCADE,
+        author_user_id  INTEGER NOT NULL REFERENCES users(id),
+        body            TEXT    NOT NULL,
+        created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_request_comments_request ON request_comments(request_id, created_at);
     """)
 
     conn.executescript("""

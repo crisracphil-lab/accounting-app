@@ -223,6 +223,12 @@ def _operations_access_companies(conn, user):
 
 
 def _can_access_request(conn, user, pr) -> bool:
+    try:
+        is_draft = int(pr["is_draft"] or 0)
+    except (KeyError, IndexError, TypeError):
+        is_draft = 0
+    if is_draft:
+        return pr["requester_user_id"] == user["id"]
     req_company_id = int(pr["company_id"] or 1)
     if user["role"] == "admin" and not _is_operations_manager(user):
         return True
@@ -232,12 +238,7 @@ def _can_access_request(conn, user, pr) -> bool:
         )
     if _is_accounting_user(user):
         return req_company_id == int(user["company_id"] or 1)
-    same_requesting_department = (
-        req_company_id == int(user["company_id"] or 1)
-        and pr["department_id"]
-        and pr["department_id"] == user["department_id"]
-    )
-    return pr["requester_user_id"] == user["id"] or bool(same_requesting_department)
+    return pr["requester_user_id"] == user["id"]
 
 
 def _request_amount(value) -> Decimal:

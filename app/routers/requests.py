@@ -176,11 +176,12 @@ def requests_page(request: Request, status: str = "", company_id: int = 0,
                 "pr.company_id = ?",
                 "pr.request_type = 'reimbursement'",
                 "CAST(REPLACE(pr.amount, ',', '') AS REAL) > 50000",
+                "pr.is_draft = 0",
             ]
             params_list = [selected_company_id]
         elif _is_accounting_user(user):
-            where_parts = ["pr.company_id = ?"]
-            params_list = [selected_company_id]
+            where_parts = ["pr.company_id = ?", "(pr.is_draft = 0 OR pr.requester_user_id = ?)"]
+            params_list = [selected_company_id, user["id"]]
         else:
             where_parts = ["pr.requester_user_id = ?"]
             params_list = [user["id"]]
@@ -218,18 +219,38 @@ def requests_page(request: Request, status: str = "", company_id: int = 0,
             tuple(params_list),
         ).fetchall()
 
+        # ── Aging / SLA flag: is this request's due date approaching or
+        # already passed? Computed from payment_requests.due_date, already
+        # present on each row in `rows` — no extra query needed. Warning =
+        # due within 3 days; critical = due date already passed.
+        aging_by_id: dict[int, dict] = {}
+        _AGING_STATUSES = {"submitted", "for_review", "for_process", "approved"}
+        _today = date.today()
+        for _r in rows:
+            if _r["status"] not in _AGING_STATUSES or not _r["due_date"]:
+                continue
+            try:
+                _due = date.fromisoformat((_r["due_date"] or "")[:10])
+            except ValueError:
+                continue
+            _days_left = (_due - _today).days
+            if _days_left < 0:
+                aging_by_id[_r["id"]] = {"level": "critical", "text": f"{abs(_days_left)}d overdue"}
+            elif _days_left <= 3:
+                aging_by_id[_r["id"]] = {"level": "warning", "text": "due today" if _days_left == 0 else f"due in {_days_left}d"}
+
         # ── Status badge counts (unfiltered by date, always show full picture) ─
         if _is_operations_manager(user):
             stats = conn.execute(
                 """SELECT status, COUNT(*) AS n, SUM(CAST(REPLACE(amount,',','') AS REAL)) AS total
                    FROM payment_requests
                    WHERE company_id=? AND request_type='reimbursement'
-                     AND CAST(REPLACE(amount,',','') AS REAL)>50000 GROUP BY status""",
+                     AND CAST(REPLACE(amount,',','') AS REAL)>50000 AND is_draft=0 GROUP BY status""",
                 (selected_company_id,)).fetchall()
         elif _is_accounting_user(user):
             stats = conn.execute(
                 """SELECT status, COUNT(*) AS n, SUM(CAST(REPLACE(amount,',','') AS REAL)) AS total
-                   FROM payment_requests WHERE company_id=? GROUP BY status""",
+                   FROM payment_requests WHERE company_id=? AND is_draft=0 GROUP BY status""",
                 (selected_company_id,)).fetchall()
         else:
             stats = conn.execute(
@@ -299,6 +320,15 @@ def requests_page(request: Request, status: str = "", company_id: int = 0,
     pending_total = sum(stats_total.get(s, 0) for s in pending_statuses)
     paid_total    = stats_total.get("paid", 0)
 
+    with db() as conn:
+        my_drafts = conn.execute(
+            """SELECT id, request_type, payee_name, description, amount, created_at, updated_at
+               FROM payment_requests
+               WHERE requester_user_id = ? AND is_draft = 1
+               ORDER BY COALESCE(updated_at, created_at) DESC""",
+            (user["id"],),
+        ).fetchall()
+
     def _safe_amt(v):
         try:
             return Decimal(str(v).replace(",", ""))
@@ -331,6 +361,7 @@ def requests_page(request: Request, status: str = "", company_id: int = 0,
 
     return templates.TemplateResponse(request, "requests.html", {
         "requests": rows,
+        "my_drafts": my_drafts,
         "status": status,
         "date_start": date_start or "",
         "date_end":   date_end   or "",
@@ -348,6 +379,7 @@ def requests_page(request: Request, status: str = "", company_id: int = 0,
         "export_month": date.today().strftime("%Y-%m"),
         "export_month_options": _recent_month_options(),
         "duplicate_request_ids": duplicate_request_ids,
+        "aging_by_id": aging_by_id,
     })
 
 
@@ -434,8 +466,87 @@ async def parse_expense_journal(request: Request, journal_file: UploadFile = Fil
     return JSONResponse({"items": classified, "count": len(classified)})
 
 
+@router.post("/requests/parse-receipt")
+async def parse_receipt_image(request: Request, receipt_file: UploadFile = File(...)) -> Response:
+    """OCR an uploaded receipt photo and return a best-guess payee/amount/date as JSON.
+
+    This only ever returns suggestions for the requester to review — it never
+    writes anything to the database by itself.
+    """
+    user = _current_user(request)
+    if not user:
+        return JSONResponse({"error": "Login required"}, status_code=401)
+
+    allowed = (".jpg", ".jpeg", ".png", ".webp")
+    fname = (receipt_file.filename or "").lower()
+    if not any(fname.endswith(ext) for ext in allowed):
+        return JSONResponse({"error": "Please upload a receipt photo as .jpg, .jpeg, .png, or .webp."}, status_code=400)
+
+    try:
+        image_bytes = await receipt_file.read()
+        from app.services.receipt_ocr import extract_receipt_fields, ocr_image_bytes
+        text = ocr_image_bytes(image_bytes)
+        fields = extract_receipt_fields(text)
+        with db() as conn:
+            def _resolve_account_id(code):
+                if not code:
+                    return None
+                row = conn.execute(
+                    "SELECT id FROM chart_of_accounts WHERE code = ? AND is_active = 1", (code,)
+                ).fetchone()
+                return row["id"] if row else None
+            fields["account_id"] = _resolve_account_id(fields.get("account_code"))
+            for item in fields.get("line_items", []):
+                item["account_id"] = _resolve_account_id(item.get("account_code"))
+    except RuntimeError as exc:
+        # OCR dependency (pytesseract/Pillow, or the Tesseract program itself) missing.
+        return JSONResponse({"error": str(exc)}, status_code=503)
+    except Exception as exc:
+        return JSONResponse({"error": f"Could not read receipt image: {exc}"}, status_code=500)
+
+    return JSONResponse(fields)
+
+
+@router.post("/requests/templates")
+def request_template_create(request: Request,
+                             name: str = Form(...),
+                             request_type: str = Form("supplier_payment"),
+                             payee_name: str = Form(""),
+                             description: str = Form(""),
+                             amount: str = Form(""),
+                             account_id: int = Form(0)) -> Response:
+    """Save the current form's fields as a reusable, personal template."""
+    user = _current_user(request)
+    clean_name = name.strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Template name is required")
+    if request_type not in {"supplier_payment", "reimbursement"}:
+        request_type = "supplier_payment"
+    with db() as conn:
+        valid_acct_ids = {r["id"] for r in conn.execute("SELECT id FROM chart_of_accounts WHERE is_active = 1").fetchall()}
+        clean_account_id = account_id if account_id in valid_acct_ids else None
+        conn.execute(
+            "INSERT INTO request_templates (owner_user_id, name, request_type, payee_name, description, amount, account_id)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (user["id"], clean_name, request_type, payee_name.strip() or None,
+             description.strip() or None, amount.strip() or None, clean_account_id),
+        )
+    return RedirectResponse("/requests/new", status_code=303)
+
+
+@router.post("/requests/templates/{template_id}/delete")
+def request_template_delete(request: Request, template_id: int) -> Response:
+    user = _current_user(request)
+    with db() as conn:
+        tpl = conn.execute("SELECT * FROM request_templates WHERE id = ?", (template_id,)).fetchone()
+        if tpl is None or tpl["owner_user_id"] != user["id"]:
+            raise HTTPException(status_code=404, detail="Template not found")
+        conn.execute("DELETE FROM request_templates WHERE id = ?", (template_id,))
+    return RedirectResponse("/requests/new", status_code=303)
+
+
 @router.get("/requests/new", response_class=HTMLResponse)
-def request_new_page(request: Request) -> Response:
+def request_new_page(request: Request, edit_draft: int = 0) -> Response:
     user = _current_user(request)
     with db() as conn:
         company_id = _co_id(conn, user["company_id"])
@@ -445,9 +556,36 @@ def request_new_page(request: Request) -> Response:
         ).fetchall()
         companies = conn.execute("SELECT * FROM companies WHERE is_active = 1 ORDER BY name").fetchall()
         accounts = _get_request_form_accounts(conn)
+        saved_templates = conn.execute(
+            "SELECT * FROM request_templates WHERE owner_user_id = ? ORDER BY name", (user["id"],)
+        ).fetchall()
+        import json as _json
+        templates_json = _json.dumps([
+            {
+                "id": t["id"],
+                "request_type": t["request_type"],
+                "payee_name": t["payee_name"] or "",
+                "supplier_name": t["supplier_name"] or "",
+                "description": t["description"] or "",
+                "amount": t["amount"] or "",
+                "account_id": t["account_id"] or 0,
+            }
+            for t in saved_templates
+        ])
+        draft = None
+        draft_line_items = []
+        if edit_draft:
+            draft = conn.execute("SELECT * FROM payment_requests WHERE id = ?", (edit_draft,)).fetchone()
+            if draft is None or draft["requester_user_id"] != user["id"] or int(draft["is_draft"] or 0) != 1:
+                raise HTTPException(status_code=404, detail="Draft not found")
+            draft_line_items = conn.execute(
+                "SELECT * FROM request_line_items WHERE request_id = ? ORDER BY sort_order", (edit_draft,)
+            ).fetchall()
     return templates.TemplateResponse(request, "request_form.html", {
         "departments": departments, "companies": companies,
         "accounts": accounts, "user": user, "error": None,
+        "draft": draft, "draft_line_items": draft_line_items,
+        "saved_templates": saved_templates, "templates_json": templates_json,
     })
 
 
@@ -462,7 +600,9 @@ async def request_create(request: Request,
                          due_date: str = Form(""),
                          account_id: int = Form(0),
                          requester_email: str = Form(""),
+                         action: str = Form("submit"),
                          file: list[UploadFile] | None = File(None)) -> Response:
+    is_draft_save = (action or "submit").strip().lower() == "draft"
     # --- Parse multi-value line-item fields from raw form data ---
     form_data = await request.form()
     raw_li_accounts     = form_data.getlist("li_account_id")
@@ -506,7 +646,7 @@ async def request_create(request: Request,
         due_date = _validate_iso_date_or_400(due_date, "due date")
 
     uploaded_files = [f for f in (file or []) if f is not None and f.filename]
-    if not uploaded_files:
+    if not uploaded_files and not is_draft_save:
         return _request_form_response(request, "Please attach at least one PO, invoice, receipt, or reimbursement form before submitting.")
     if len(uploaded_files) > 10:
         return _request_form_response(request, "You can attach a maximum of 10 files.")
@@ -574,9 +714,9 @@ async def request_create(request: Request,
         clean_requester_email = requester_email.strip() or None
         cur = conn.execute(
             """INSERT INTO payment_requests
-               (company_id, request_type, requester_user_id, department_id, supplier_name, payee_name, description, amount, due_date, account_id, requester_email)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (company_id, request_type, user["id"], department_id, supplier_name, payee_name, description, clean_amount, due_date or None, resolved_account_id, clean_requester_email),
+               (company_id, request_type, requester_user_id, department_id, supplier_name, payee_name, description, amount, due_date, account_id, requester_email, is_draft)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (company_id, request_type, user["id"], department_id, supplier_name, payee_name, description, clean_amount, due_date or None, resolved_account_id, clean_requester_email, 1 if is_draft_save else 0),
         )
         request_id = cur.lastrowid
 
@@ -632,13 +772,19 @@ async def request_create(request: Request,
             )
         link = f"/requests/{request_id}"
         submitted_message = f"Your {request_type.replace('_', ' ')} request for {payee_name} amounting to {clean_amount} was submitted to Accounting."
-        _notify_requesting_department(conn, request_id, company_id, department_id, user["id"], "Request submitted", submitted_message)
-        if _needs_operations_approval(request_type, clean_amount):
-            _notify_operations_managers(conn, "Approval needed", f"High-value reimbursement for {payee_name} amounting to {clean_amount} needs General Manager approval.", link, company_id=company_id)
-            _notify_accounting(conn, "High-value reimbursement submitted", f"{payee_name} reimbursement for {clean_amount} was submitted and needs General Manager approval.", link, company_id=company_id)
+        if is_draft_save:
+            log_action(conn, "create_draft", "payment_request", request_id,
+                       {"status": "draft", "company_id": company_id}, user_id=user["username"])
         else:
-            _notify_accounting(conn, "New payment request", f"{payee_name} request for {clean_amount} was submitted.", link, company_id=company_id)
-        log_action(conn, "create", "payment_request", request_id, {"status": "submitted", "invoice_id": invoice_id, "company_id": company_id}, user_id=user["username"])
+            _notify_requesting_department(conn, request_id, company_id, department_id, user["id"], "Request submitted", submitted_message)
+            if _needs_operations_approval(request_type, clean_amount):
+                _notify_operations_managers(conn, "Approval needed", f"High-value reimbursement for {payee_name} amounting to {clean_amount} needs General Manager approval.", link, company_id=company_id)
+                _notify_accounting(conn, "High-value reimbursement submitted", f"{payee_name} reimbursement for {clean_amount} was submitted and needs General Manager approval.", link, company_id=company_id)
+            else:
+                _notify_accounting(conn, "New payment request", f"{payee_name} request for {clean_amount} was submitted.", link, company_id=company_id)
+            log_action(conn, "create", "payment_request", request_id, {"status": "submitted", "invoice_id": invoice_id, "company_id": company_id}, user_id=user["username"])
+    if is_draft_save:
+        return RedirectResponse(f"/requests/{request_id}?message=Draft+saved", status_code=303)
     return templates.TemplateResponse(request, "request_submit_result.html", {
         "outcome": "success",
         "request_id": request_id,
@@ -653,6 +799,356 @@ async def request_create(request: Request,
 
 # Export routes moved to requests_export.py
 # Invoice routes moved to invoices.py
+
+@router.post("/requests/{request_id}/submit-draft")
+def request_submit_draft(request: Request, request_id: int) -> Response:
+    """Requester submits a previously-saved draft for real: notifications fire,
+    is_draft flips to 0, and the request becomes visible/actionable per the
+    normal _can_access_request rules from this point on."""
+    user = _current_user(request)
+    with db() as conn:
+        pr = conn.execute("SELECT * FROM payment_requests WHERE id = ?", (request_id,)).fetchone()
+        if pr is None:
+            raise HTTPException(status_code=404, detail="Request not found")
+        if pr["requester_user_id"] != user["id"] or int(pr["is_draft"] or 0) != 1:
+            raise HTTPException(status_code=404, detail="Request not found")
+
+        conn.execute(
+            "UPDATE payment_requests SET is_draft = 0, updated_at = datetime('now') WHERE id = ?",
+            (request_id,),
+        )
+
+        company_id = int(pr["company_id"] or 1)
+        department_id = pr["department_id"]
+        payee_name = pr["payee_name"]
+        clean_amount = pr["amount"]
+        request_type = pr["request_type"]
+        link = f"/requests/{request_id}"
+        submitted_message = f"Your {request_type.replace('_', ' ')} request for {payee_name} amounting to {clean_amount} was submitted to Accounting."
+
+        _notify_requesting_department(conn, request_id, company_id, department_id, user["id"], "Request submitted", submitted_message)
+        if _needs_operations_approval(request_type, clean_amount):
+            _notify_operations_managers(conn, "Approval needed", f"High-value reimbursement for {payee_name} amounting to {clean_amount} needs General Manager approval.", link, company_id=company_id)
+            _notify_accounting(conn, "High-value reimbursement submitted", f"{payee_name} reimbursement for {clean_amount} was submitted and needs General Manager approval.", link, company_id=company_id)
+        else:
+            _notify_accounting(conn, "New payment request", f"{payee_name} request for {clean_amount} was submitted.", link, company_id=company_id)
+
+        log_action(conn, "submit_draft", "payment_request", request_id,
+                   {"status": "submitted", "company_id": company_id}, user_id=user["username"])
+
+    return RedirectResponse(f"/requests/{request_id}?message=Request+submitted", status_code=303)
+
+
+@router.post("/requests/{request_id}/update-draft")
+async def request_update_draft(request: Request, request_id: int,
+                               request_type: str = Form("supplier_payment"),
+                               department_name: str = Form(""),
+                               supplier_name: str = Form(""),
+                               payee_name: str = Form(...),
+                               description: str = Form(...),
+                               amount: str = Form("0"),
+                               due_date: str = Form(""),
+                               account_id: int = Form(0),
+                               requester_email: str = Form(""),
+                               action: str = Form("draft")) -> Response:
+    """Save edits to an existing draft in place. If action=submit, the draft
+    is updated and then immediately submitted for real via the same
+    notification path as request_submit_draft."""
+    user = _current_user(request)
+    form_data = await request.form()
+    raw_li_accounts     = form_data.getlist("li_account_id")
+    raw_li_descriptions = form_data.getlist("li_description")
+    raw_li_amounts      = form_data.getlist("li_amount")
+
+    line_items = []
+    for acct_raw, desc_raw, amt_raw in zip(raw_li_accounts, raw_li_descriptions, raw_li_amounts):
+        try:
+            li_amount = Decimal(str(amt_raw).replace(",", "").strip())
+        except (InvalidOperation, ValueError, ArithmeticError):
+            continue
+        if li_amount == 0:
+            continue
+        line_items.append({
+            "account_id": int(acct_raw) if str(acct_raw).strip().isdigit() else None,
+            "description": str(desc_raw).strip(),
+            "amount": li_amount,
+        })
+
+    with db() as conn:
+        pr = conn.execute("SELECT * FROM payment_requests WHERE id = ?", (request_id,)).fetchone()
+        if pr is None or pr["requester_user_id"] != user["id"] or int(pr["is_draft"] or 0) != 1:
+            raise HTTPException(status_code=404, detail="Draft not found")
+
+        payee_name = payee_name.strip()
+        description = description.strip()
+        supplier_name = supplier_name.strip() or payee_name
+        if not payee_name or not description:
+            raise HTTPException(status_code=400, detail="Payee and description are required.")
+
+        if line_items:
+            clean_amount = str(sum(li["amount"] for li in line_items))
+        else:
+            try:
+                clean_amount = str(Decimal(amount.replace(",", "")))
+            except (InvalidOperation, ValueError, ArithmeticError):
+                raise HTTPException(status_code=400, detail="Amount must be numeric, or add at least one line item.")
+
+        conn.execute(
+            """UPDATE payment_requests
+               SET request_type = ?, department_id = COALESCE(
+                       (SELECT id FROM departments WHERE lower(trim(name)) = lower(trim(?)) AND company_id = ? AND is_active = 1),
+                       department_id),
+                   supplier_name = ?, payee_name = ?, description = ?, amount = ?,
+                   due_date = ?, requester_email = ?, updated_at = datetime('now')
+               WHERE id = ?""",
+            (request_type, department_name, int(pr["company_id"] or 1), supplier_name, payee_name,
+             description, clean_amount, due_date or None, requester_email.strip() or None, request_id),
+        )
+        conn.execute("DELETE FROM request_line_items WHERE request_id = ?", (request_id,))
+        valid_acct_ids = {r["id"] for r in conn.execute("SELECT id FROM chart_of_accounts WHERE is_active = 1").fetchall()}
+        for idx, li in enumerate(line_items):
+            li_account_id = li["account_id"] if li["account_id"] in valid_acct_ids else None
+            conn.execute(
+                "INSERT INTO request_line_items (request_id, account_id, description, amount, sort_order) VALUES (?,?,?,?,?)",
+                (request_id, li_account_id, li["description"] or "", float(li["amount"]), idx),
+            )
+        log_action(conn, "update_draft", "payment_request", request_id,
+                   {"payee_name": payee_name}, user_id=user["username"])
+
+    if (action or "draft").strip().lower() == "submit":
+        return request_submit_draft(request, request_id)
+    return RedirectResponse(f"/requests/{request_id}?message=Draft+updated", status_code=303)
+
+
+def _money_for_pdf(value) -> str:
+    try:
+        return f"{float(str(value).replace(',', '')):,.2f}"
+    except (TypeError, ValueError):
+        return str(value or "")
+
+
+def _build_request_pdf(pr, line_items, attachments) -> bytes:
+    """Render a single payment request as a printable PDF voucher."""
+    import io
+    from datetime import datetime
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        topMargin=18 * mm, bottomMargin=18 * mm, leftMargin=18 * mm, rightMargin=18 * mm,
+    )
+    styles = getSampleStyleSheet()
+    story = [Paragraph(f"BookPoint — Payment Request #{pr['id']}", styles["Title"]), Spacer(1, 6)]
+
+    info_rows = [
+        ("Status", (pr["status"] or "").replace("_", " ").title()),
+        ("Request type", (pr["request_type"] or "").replace("_", " ").title()),
+        ("Payee / Supplier", pr["payee_name"] or ""),
+        ("Requester", pr["full_name"] or pr["username"] or ""),
+        ("Department", pr["department_name"] or ""),
+        ("Company", pr["company_name"] or ""),
+        ("Amount", _money_for_pdf(pr["amount"])),
+        ("Due date", pr["due_date"] or ""),
+        ("Created", (pr["created_at"] or "")[:16]),
+    ]
+    try:
+        account_code = pr["account_code"]
+    except (KeyError, IndexError):
+        account_code = None
+    if account_code:
+        info_rows.append(("GL account", f"{pr['account_code']} — {pr['account_title']}"))
+    if pr["description"]:
+        info_rows.append(("Description", pr["description"]))
+    if pr["accounting_notes"]:
+        info_rows.append(("Accounting notes", pr["accounting_notes"]))
+    if pr["operations_notes"]:
+        info_rows.append(("Operations notes", pr["operations_notes"]))
+
+    info_table = Table(
+        [[Paragraph(f"<b>{k}</b>", styles["Normal"]), Paragraph(str(v), styles["Normal"])] for k, v in info_rows],
+        colWidths=[110, 360],
+    )
+    info_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d1d5db")),
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f8fafc")),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(info_table)
+    story.append(Spacer(1, 14))
+
+    if line_items:
+        story.append(Paragraph("Line items", styles["Heading3"]))
+        data = [["Description", "GL account", "Amount"]]
+        total = 0.0
+        for li in line_items:
+            try:
+                li_account_code = li["account_code"]
+                li_account_title = li["account_title"]
+            except (KeyError, IndexError):
+                li_account_code = li_account_title = None
+            acct = f"{li_account_code} — {li_account_title}" if li_account_code else "—"
+            amt = float(li["amount"] or 0)
+            total += amt
+            data.append([li["description"] or "", acct, _money_for_pdf(amt)])
+        data.append(["", "Total", _money_for_pdf(total)])
+        li_table = Table(data, colWidths=[250, 150, 70])
+        li_table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d1d5db")),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("ALIGN", (2, 0), (2, -1), "RIGHT"),
+            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ]))
+        story.append(li_table)
+        story.append(Spacer(1, 14))
+
+    if attachments:
+        story.append(Paragraph("Attachments", styles["Heading3"]))
+        for a in attachments:
+            story.append(Paragraph(f"• {a['filename']}", styles["Normal"]))
+        story.append(Spacer(1, 14))
+
+    story.append(Spacer(1, 10))
+    story.append(Paragraph(
+        f"<font size=8 color='#6b7280'>Exported from BookPoint on {datetime.now().strftime('%Y-%m-%d %H:%M')}</font>",
+        styles["Normal"],
+    ))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+@router.get("/requests/{request_id}/export-pdf")
+def request_export_pdf(request: Request, request_id: int) -> Response:
+    """Export a single payment request as a printable PDF voucher.
+
+    Reuses _can_access_request() — the same gatekeeper as the on-screen
+    request detail page — so nothing new is exposed via this download that
+    the user couldn't already see on screen.
+    """
+    user = _current_user(request)
+    with db() as conn:
+        pr = conn.execute(
+            """SELECT pr.*, u.username, u.full_name, pr.requester_email, d.name AS department_name,
+                      c.name AS company_name, coa.code AS account_code, coa.name AS account_title
+               FROM payment_requests pr
+               JOIN users u ON u.id = pr.requester_user_id
+               LEFT JOIN departments d ON d.id = pr.department_id
+               LEFT JOIN companies c ON c.id = pr.company_id
+               LEFT JOIN chart_of_accounts coa ON coa.id = pr.account_id
+               WHERE pr.id = ?""",
+            (request_id,),
+        ).fetchone()
+        if pr is None:
+            raise HTTPException(status_code=404, detail="Request not found")
+        if not _can_access_request(conn, user, pr):
+            raise HTTPException(status_code=403, detail="Request access denied")
+        line_items = conn.execute(
+            """SELECT li.*, coa.code AS account_code, coa.name AS account_title
+               FROM request_line_items li
+               LEFT JOIN chart_of_accounts coa ON coa.id = li.account_id
+               WHERE li.request_id = ? ORDER BY li.sort_order, li.id""",
+            (request_id,),
+        ).fetchall()
+        attachments = conn.execute(
+            "SELECT * FROM request_attachments WHERE request_id = ? ORDER BY id",
+            (request_id,),
+        ).fetchall()
+
+    pdf_bytes = _build_request_pdf(pr, line_items, attachments)
+    filename = f"bookpoint_request_{request_id}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _clean_money(value) -> float:
+    try:
+        return float(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return 0.0
+
+
+@router.post("/requests/{request_id}/record-payment")
+def request_record_payment(request: Request, request_id: int,
+                            amount: str = Form(...),
+                            paid_date: str = Form(...),
+                            notes: str = Form("")) -> Response:
+    """Record one installment payment against a supplier payment request.
+
+    When the sum of recorded payments reaches the request's full amount, the
+    request automatically moves to 'paid' — otherwise it's set to
+    'partially_paid'. Reuses the same company-scoping rule as
+    request_update_status() above.
+    """
+    user = _current_user(request)
+    if not _is_accounting_user(user):
+        raise HTTPException(status_code=403, detail="Accounting access required")
+    with db() as conn:
+        pr = conn.execute("SELECT * FROM payment_requests WHERE id = ?", (request_id,)).fetchone()
+        if pr is None:
+            raise HTTPException(status_code=404, detail="Request not found")
+        if user["role"] != "admin" and int(pr["company_id"] or 0) != int(user["company_id"] or 0):
+            raise HTTPException(status_code=403, detail="Accounting can only record payments for their own company")
+        if pr["request_type"] != "supplier_payment":
+            raise HTTPException(status_code=400, detail="Partial payments are only supported for supplier payments")
+        if pr["status"] not in {"approved"}:
+            raise HTTPException(status_code=400, detail="Request must be approved before recording a payment")
+
+        clean_amount = _clean_money(amount)
+        if clean_amount <= 0:
+            raise HTTPException(status_code=400, detail="Payment amount must be greater than zero")
+
+        conn.execute(
+            "INSERT INTO payment_records (request_id, amount, paid_date, notes, recorded_by_user_id) VALUES (?,?,?,?,?)",
+            (request_id, clean_amount, paid_date.strip(), notes.strip() or None, user["id"]),
+        )
+
+        total_paid = conn.execute(
+            "SELECT COALESCE(SUM(amount), 0) AS total FROM payment_records WHERE request_id = ?",
+            (request_id,),
+        ).fetchone()["total"]
+        request_amount = _clean_money(pr["amount"])
+        is_fully_paid = total_paid >= request_amount - 0.005
+        remaining_after = round(request_amount - total_paid, 2)
+
+        if is_fully_paid:
+            conn.execute(
+                "UPDATE payment_requests SET status = 'paid', updated_at = datetime('now'),"
+                " paid_at = COALESCE(paid_at, datetime('now')) WHERE id = ?",
+                (request_id,),
+            )
+        else:
+            conn.execute(
+                "UPDATE payment_requests SET updated_at = datetime('now') WHERE id = ?",
+                (request_id,),
+            )
+
+        log_action(conn, "record_payment", "payment_request", request_id,
+                   {"amount": clean_amount, "paid_date": paid_date.strip(),
+                    "fully_paid": is_fully_paid, "remaining_balance": remaining_after},
+                   user_id=user["username"])
+
+        notif_title = "Payment recorded 💸" if is_fully_paid else "Partial payment recorded"
+        status_note = "fully paid" if is_fully_paid else f"{remaining_after:,.2f} remaining"
+        notif_body = f"A payment of {clean_amount:,.2f} was recorded for {pr['payee_name']} ({status_note})."
+        _notify_once(conn, pr["requester_user_id"], notif_title, notif_body, f"/requests/{request_id}")
+
+    return RedirectResponse(f"/requests/{request_id}?message=Payment+recorded", status_code=303)
+
 
 @router.get("/requests/{request_id}", response_class=HTMLResponse)
 def request_detail(request: Request, request_id: int, message: str = "") -> Response:
@@ -680,6 +1176,113 @@ def request_detail(request: Request, request_id: int, message: str = "") -> Resp
                WHERE li.request_id = ? ORDER BY li.sort_order, li.id""",
             (request_id,),
         ).fetchall()
+        comments = conn.execute(
+            """SELECT rc.*, u.full_name, u.username, u.role, u.department_id AS author_department_id
+               FROM request_comments rc
+               JOIN users u ON u.id = rc.author_user_id
+               WHERE rc.request_id = ?
+               ORDER BY rc.created_at ASC, rc.id ASC""",
+            (request_id,),
+        ).fetchall()
+        can_view_comments = (
+            _is_accounting_user(user)
+            or int(pr["requester_user_id"] or 0) == int(user["id"] or 0)
+        )
+        if not can_view_comments:
+            comments = []
+        payment_records = conn.execute(
+            "SELECT pay.*, u.full_name AS recorded_by_name, u.username AS recorded_by_username"
+            " FROM payment_records pay"
+            " LEFT JOIN users u ON u.id = pay.recorded_by_user_id"
+            " WHERE pay.request_id = ? ORDER BY pay.paid_date ASC, pay.id ASC",
+            (request_id,),
+        ).fetchall()
+        total_paid = sum(float(p["amount"] or 0) for p in payment_records)
+        try:
+            request_amount_for_balance = float(str(pr["amount"]).replace(",", ""))
+        except (TypeError, ValueError):
+            request_amount_for_balance = 0.0
+        remaining_balance = round(request_amount_for_balance - total_paid, 2)
+        timeline_rows = conn.execute(
+            """SELECT al.*, u.full_name AS actor_full_name, u.username AS actor_username
+               FROM audit_logs al
+               LEFT JOIN users u ON u.username = al.user_id
+               WHERE al.entity_type = 'payment_request' AND al.entity_id = ?
+               ORDER BY al.timestamp ASC, al.id ASC""",
+            (request_id,),
+        ).fetchall()
+
+        def _describe_timeline_event(action, details_json):
+            import json as _json
+            try:
+                details = _json.loads(details_json) if details_json else {}
+            except (ValueError, TypeError):
+                details = {}
+            if action == "create":
+                return "Request submitted", "📝"
+            if action == "create_draft":
+                return "Draft created", "📝"
+            if action == "submit_draft":
+                return "Draft submitted for approval", "📤"
+            if action == "update_draft":
+                return "Draft edited", "✏️"
+            if action == "update":
+                return "Request details updated", "✏️"
+            if action == "set_account":
+                return "Account classification set", "🏷️"
+            if action == "set_account_split":
+                return "Expense split across accounts", "🏷️"
+            if action == "cancel":
+                remarks = (details.get("remarks") or "").strip()
+                label = "Request cancelled" + (f' — "{remarks[:120]}"' if remarks else "")
+                return label, "🚫"
+            if action == "status_update":
+                status = str(details.get("status") or "").replace("_", " ").title()
+                return (f"Status changed to {status}" if status else "Status updated"), "🔄"
+            if action == "upload_receipt":
+                return "Payment receipt uploaded", "🧾"
+            if action == "upload_journal_basis":
+                return "Journal basis file uploaded", "📒"
+            if action == "set_journal_basis_from_attachment":
+                return "Journal basis set from an existing attachment", "📒"
+            if action == "record_payment":
+                amt = details.get("amount")
+                amt_label = f"{float(amt):,.2f}" if amt is not None else ""
+                if details.get("fully_paid"):
+                    suffix = " — fully paid"
+                else:
+                    rem = details.get("remaining_balance")
+                    suffix = f" — {float(rem):,.2f} remaining" if rem is not None else ""
+                label = f"Payment of {amt_label} recorded" + suffix
+                return label, "💵"
+            if action == "comment":
+                body = (details.get("body") or "").strip()
+                label = "Comment added" + (f': "{body[:80]}"' if body else "")
+                return label, "💬"
+            return action.replace("_", " ").title(), "•"
+
+        timeline = []
+        for _row in timeline_rows:
+            _label, _icon = _describe_timeline_event(_row["action"], _row["details_json"])
+            timeline.append({
+                "timestamp": _row["timestamp"],
+                "actor_name": _row["actor_full_name"] or _row["actor_username"] or _row["user_id"],
+                "label": _label,
+                "icon": _icon,
+            })
+
+        aging = None
+        if pr["status"] in {"submitted", "for_review", "for_process", "approved"} and pr["due_date"]:
+            try:
+                _due = date.fromisoformat((pr["due_date"] or "")[:10])
+                _days_left = (_due - date.today()).days
+                if _days_left < 0:
+                    aging = {"level": "critical", "text": f"{abs(_days_left)}d overdue"}
+                elif _days_left <= 3:
+                    aging = {"level": "warning", "text": "due today" if _days_left == 0 else f"due in {_days_left}d"}
+            except ValueError:
+                pass
+
         accounts = _get_request_form_accounts(conn)
         is_accounting_user = _is_accounting_user(user) and not _is_operations_manager(user)
         is_ops_user = _is_operations_manager(user)
@@ -748,7 +1351,14 @@ def request_detail(request: Request, request_id: int, message: str = "") -> Resp
     return templates.TemplateResponse(request, "request_detail.html", {
         "r": pr, "attachments": attachments, "invoice": invoice, "receipts": receipts,
         "line_items": line_items, "accounts": accounts,
-        "is_accounting": is_accounting_user,
+ "comments": comments,
+        "can_view_comments": can_view_comments,
+        "timeline": timeline,
+        "aging": aging,
+        "payment_records": payment_records,
+        "total_paid": total_paid,
+        "remaining_balance": remaining_balance,
+"is_accounting": is_accounting_user,
         "is_operations_manager": is_ops_user,
         "needs_operations_approval": _needs_operations_approval(pr["request_type"], pr["amount"]),
         "message": message or None,
@@ -1070,6 +1680,44 @@ async def request_update_status(request: Request, request_id: int,
     return RedirectResponse(f"/requests/{request_id}?message=Status%20updated", status_code=303)
 
 
+@router.post("/requests/bulk-status")
+async def request_bulk_update_status(request: Request,
+                                     request_ids: list[int] = Form(...),
+                                     status: str = Form(...),
+                                     accounting_notes: str = Form(""),
+                                     operations_notes: str = Form(""),
+                                     company_id: int = Form(0)) -> Response:
+    """Approve or reject multiple requests at once. Reuses the exact same
+    per-request validation, notification, receipt/JE, and audit-log logic
+    as request_update_status() above by calling it directly for each id —
+    nothing here duplicates that logic."""
+    if status not in {"approved", "rejected"}:
+        raise HTTPException(status_code=400, detail="Bulk actions only support approve or reject")
+
+    succeeded: list[int] = []
+    failed: list[tuple[int, str]] = []
+    for rid in request_ids:
+        try:
+            await request_update_status(
+                request, rid,
+                status=status,
+                accounting_notes=accounting_notes,
+                operations_notes=operations_notes,
+                receipt_file=None,
+            )
+            succeeded.append(rid)
+        except HTTPException as exc:
+            failed.append((rid, str(exc.detail)))
+
+    from urllib.parse import quote
+    label = "approved" if status == "approved" else "rejected"
+    msg = f"{len(succeeded)} request(s) {label}."
+    if failed:
+        msg += f" {len(failed)} could not be updated (e.g. #{failed[0][0]}: {failed[0][1]})."
+    qs = f"company_id={company_id}&message={quote(msg)}" if company_id else f"message={quote(msg)}"
+    return RedirectResponse(f"/requests?{qs}", status_code=303)
+
+
 @router.post("/requests/{request_id}/upload-receipt", response_class=HTMLResponse)
 async def upload_payment_receipt(request: Request, request_id: int,
                                   receipt_file: UploadFile = File(...)) -> Response:
@@ -1274,3 +1922,57 @@ def preview_payment_receipt(request: Request, request_id: int, receipt_id: int) 
 
 
 # Invoice routes moved to invoices.py
+@router.post("/requests/{request_id}/comments")
+async def request_add_comment(request: Request, request_id: int,
+                               body: str = Form(...)) -> Response:
+    user = _current_user(request)
+    body = body.strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Comment cannot be empty")
+
+    with db() as conn:
+        pr = conn.execute("SELECT * FROM payment_requests WHERE id = ?", (request_id,)).fetchone()
+        if pr is None:
+            raise HTTPException(status_code=404, detail="Request not found")
+        if not _can_access_request(conn, user, pr):
+            raise HTTPException(status_code=403, detail="Request access denied")
+        if (
+            not _is_accounting_user(user)
+            and int(pr["requester_user_id"] or 0) != int(user["id"] or 0)
+        ):
+            raise HTTPException(status_code=403, detail="Only Accounting and the requester can comment on this request")
+
+        conn.execute(
+            "INSERT INTO request_comments (request_id, author_user_id, body) VALUES (?, ?, ?)",
+            (request_id, user["id"], body),
+        )
+        log_action(conn, "comment", "payment_request", request_id, {"body": body}, user_id=user["username"])
+
+        link = f"/requests/{request_id}"
+        commenter_is_accounting_or_ops = _is_accounting_user(user) or _is_operations_manager(user)
+        commenter_is_requester_side = (
+            int(pr["requester_user_id"] or 0) == int(user["id"] or 0)
+            or (pr["department_id"] and pr["department_id"] == user["department_id"])
+        )
+
+        if commenter_is_accounting_or_ops:
+            _notify_once(
+                conn, pr["requester_user_id"],
+                "New comment on your request",
+                f"{user['full_name'] or user['username']} commented on request #{request_id} for {pr['payee_name']}.",
+                link, send_email=False,
+            )
+        elif commenter_is_requester_side:
+            _notify_accounting(
+                conn, "New comment on a request",
+                f"{user['full_name'] or user['username']} commented on request #{request_id} for {pr['payee_name']}.",
+                link, company_id=pr["company_id"] or 0,
+            )
+            if _needs_operations_approval(pr["request_type"], pr["amount"]):
+                _notify_operations_managers(
+                    conn, "New comment on a request",
+                    f"{user['full_name'] or user['username']} commented on request #{request_id} for {pr['payee_name']}.",
+                    link, company_id=pr["company_id"] or 0,
+                )
+
+    return RedirectResponse(f"/requests/{request_id}?message=Comment+added", status_code=303)
