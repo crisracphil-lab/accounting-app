@@ -7,7 +7,7 @@ import mimetypes
 import shutil
 import tempfile
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -154,11 +154,24 @@ def _get_request_attachment_for_user(request: Request, request_id: int, attachme
 
 @router.get("/requests", response_class=HTMLResponse)
 def requests_page(request: Request, status: str = "", company_id: int = 0,
-                  message: str = "", start: str = "", end: str = "") -> Response:
+                  message: str = "", start: str = "", end: str = "", search: str = "",
+                  period: str = "") -> Response:
     user = _current_user(request)
     # Normalise date range filter
     date_start = start.strip() if start.strip() else None
     date_end   = end.strip()   if end.strip()   else None
+
+    # Default to the current month when the caller didn't specify any date
+    # range at all — otherwise the list shows every request ever made, which
+    # gets unwieldy. Explicitly choosing "All time" in the UI sends
+    # period=all, which bypasses this default.
+    if not date_start and not date_end and period.strip().lower() != "all":
+        _today = date.today()
+        _first_day = _today.replace(day=1)
+        _next_month = (_first_day.replace(day=28) + timedelta(days=4)).replace(day=1)
+        _last_day = _next_month - timedelta(days=1)
+        date_start = _first_day.isoformat()
+        date_end = _last_day.isoformat()
 
     with db() as conn:
         selected_company_id = _co_id(conn, user["company_id"])
@@ -195,6 +208,11 @@ def requests_page(request: Request, status: str = "", company_id: int = 0,
         if date_end:
             where_parts.append("date(pr.created_at) <= ?")
             params_list.append(date_end)
+        search_term = search.strip()
+        if search_term:
+            where_parts.append("(pr.payee_name LIKE ? OR pr.description LIKE ? OR pr.supplier_name LIKE ?)")
+            like_term = f"%{search_term}%"
+            params_list.extend([like_term, like_term, like_term])
 
         # where_parts contains only literal SQL condition strings; all user
         # values travel through ? placeholders in params_list.  We join
@@ -363,6 +381,7 @@ def requests_page(request: Request, status: str = "", company_id: int = 0,
         "requests": rows,
         "my_drafts": my_drafts,
         "status": status,
+        "search": search_term,
         "date_start": date_start or "",
         "date_end":   date_end   or "",
         "message": message or None,

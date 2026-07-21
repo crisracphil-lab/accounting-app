@@ -55,6 +55,7 @@
     {% if selected_company_id %}<input type="hidden" name="company_id" value="{{ selected_company_id }}">{% endif %}
     <input type="hidden" name="start" id="filter-start" value="{{ date_start }}">
     <input type="hidden" name="end"   id="filter-end"   value="{{ date_end }}">
+    <input type="hidden" name="period" id="filter-period" value="">
 
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
 
@@ -93,7 +94,7 @@
 
       <div style="display:flex;gap:6px;align-items:flex-end;padding-bottom:1px">
         <button class="button primary" type="submit">Apply</button>
-        <a class="button secondary" href="/requests{% if selected_company_id %}?company_id={{ selected_company_id }}{% endif %}" style="font-size:13px">Clear</a>
+        <a class="button secondary" href="/requests?period=all{% if selected_company_id %}&company_id={{ selected_company_id }}{% endif %}" style="font-size:13px">Clear</a>
       </div>
     </div>
   </form>
@@ -162,6 +163,7 @@
     customDiv.style.display = 'none';
     document.getElementById('filter-start').value = s;
     document.getElementById('filter-end').value   = e;
+    document.getElementById('filter-period').value = (val === 'all') ? 'all' : '';
   }
 
   window.onPeriodChange = onPeriodChange;
@@ -294,13 +296,22 @@
 
 {# ── Requests table ────────────────────────────────────────────────────────── #}
 <div class="card">
-  <div class="section-head">
+  <div class="section-head" style="align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
     <div>
       <h3>{% if is_operations_manager and not is_accounting %}GM approvals{% elif is_accounting %}Company requests{% else %}My requests{% endif %}
         {% if date_start or date_end %}<span class="muted small" style="font-weight:400;margin-left:8px">{{ date_start or '—' }} to {{ date_end or '—' }}</span>{% endif %}
       </h3>
       <p class="muted">{{ requests|length }} result{% if requests|length != 1 %}s{% endif %} shown</p>
     </div>
+    <form method="get" action="/requests" style="display:flex;gap:6px;align-items:center">
+      {% if selected_company_id %}<input type="hidden" name="company_id" value="{{ selected_company_id }}">{% endif %}
+      {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+      {% if date_start %}<input type="hidden" name="start" value="{{ date_start }}">{% endif %}
+      {% if date_end %}<input type="hidden" name="end" value="{{ date_end }}">{% endif %}
+      <input type="search" name="search" value="{{ search }}" placeholder="Search payee or description" style="font-size:13px;padding:6px 10px;min-width:220px">
+      <button class="button secondary" type="submit" style="font-size:13px">Search</button>
+      {% if search %}<a class="button secondary" href="/requests{% if selected_company_id %}?company_id={{ selected_company_id }}{% endif %}" style="font-size:13px">Clear</a>{% endif %}
+    </form>
   </div>
   <div class="table-wrap">
     {% if is_accounting or is_operations_manager %}
